@@ -21,7 +21,7 @@ export async function POST(req: Request) {
   const { messages } = await req.json();
 
   const stream = await client.messages.create({
-    model: 'claude-opus-4-6',
+    model: 'claude-haiku-4-5',
     max_tokens: 1024,
     system: MIA_SYSTEM_PROMPT,
     messages,
