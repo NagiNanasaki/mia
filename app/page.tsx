@@ -8,29 +8,11 @@ import ChatInput from '@/components/ChatInput';
 import CatAvatar from '@/components/CatAvatar';
 import VocabModal from '@/components/VocabModal';
 
-const SUGGESTIONS = [
+const DEFAULT_SUGGESTIONS = [
   "What's your favourite anime right now?",
   "Teach me a cool British slang word!",
   "What's a weird fact you know?",
-  "Recommend me something to watch!",
-  "Let's talk about food — what's your favourite?",
-  "What music have you been listening to?",
-  "Tell me something interesting about Manchester!",
-  "What's the hardest English word to pronounce?",
-  "If you could live anywhere, where would it be?",
-  "What's your hot take on a popular anime?",
-  "Teach me a useful English phrase for daily life!",
-  "What's something you've been obsessed with lately?",
-  "Tell me a fun science fact!",
-  "What's a common English mistake Japanese learners make?",
-  "If you were a character in an anime, who would you be?",
 ];
-
-function pickSuggestions(exclude: string[] = []) {
-  const pool = SUGGESTIONS.filter(s => !exclude.includes(s));
-  const shuffled = [...pool].sort(() => Math.random() - 0.5);
-  return shuffled.slice(0, 3);
-}
 
 const INITIAL_MESSAGES: Message[] = [
   {
@@ -114,7 +96,8 @@ export default function HomePage() {
   const [streamingCharacter, setStreamingCharacter] = useState<'mia' | 'mimi' | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [showVocab, setShowVocab] = useState(false);
-  const [suggestions, setSuggestions] = useState<string[]>(() => pickSuggestions());
+  const [suggestions, setSuggestions] = useState<string[]>(DEFAULT_SUGGESTIONS);
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const sessionIdRef = useRef<string>('');
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -281,6 +264,17 @@ export default function HomePage() {
 
     setIsStreaming(false);
     setStreamingCharacter(null);
+
+    // Fetch contextual suggestions based on updated conversation
+    setLoadingSuggestions(true);
+    fetch('/api/suggestions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: updatedMessages.slice(-6) }),
+    })
+      .then(r => r.json())
+      .then(({ suggestions: s }) => { if (s?.length) setSuggestions(s); })
+      .finally(() => setLoadingSuggestions(false));
   };
 
   return (
@@ -366,27 +360,21 @@ export default function HomePage() {
           {/* Suggestion chips */}
           {!isStreaming && (
             <div className="flex items-center gap-2 mb-2 overflow-x-auto pb-1 no-scrollbar">
-              {suggestions.map((s, i) => (
+              {loadingSuggestions ? (
+                <div className="flex gap-1 items-center px-1 py-1.5">
+                  {[0, 150, 300].map(d => (
+                    <span key={d} className="w-1.5 h-1.5 bg-purple-300 rounded-full animate-bounce" style={{ animationDelay: `${d}ms` }} />
+                  ))}
+                </div>
+              ) : suggestions.map((s, i) => (
                 <button
                   key={i}
-                  onClick={() => {
-                    sendMessage(s);
-                    setSuggestions(pickSuggestions([s]));
-                  }}
+                  onClick={() => sendMessage(s)}
                   className="flex-shrink-0 text-xs text-purple-600 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-full px-3 py-1.5 transition-colors text-left"
                 >
                   {s}
                 </button>
               ))}
-              <button
-                onClick={() => setSuggestions(pickSuggestions(suggestions))}
-                className="flex-shrink-0 text-gray-400 hover:text-purple-400 transition-colors p-1.5"
-                title="別の提案を見る"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                  <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-                </svg>
-              </button>
             </div>
           )}
           <ChatInput onSend={sendMessage} disabled={isStreaming || isLoading} />
