@@ -201,19 +201,31 @@ export default function HomePage() {
     const { response: firstResponse, history: afterFirst } = await runCharacter(first, updatedMessages);
 
     // Second character responds (with first's context)
+    const name = (c: 'mia' | 'mimi') => c === 'mia' ? 'Mia' : 'Mimi';
     const { response: secondResponse, history: afterSecond } = await runCharacter(
       second,
       afterFirst,
-      `(${first === 'mia' ? 'Mia' : 'Mimi'} just said: "${firstResponse}")`
+      `(${name(first)} just said: "${firstResponse}")`
     );
 
-    // First character replies again (40% chance)
-    if (secondResponse && Math.random() < 0.4) {
-      await runCharacter(
-        first,
-        afterSecond,
-        `(${first === 'mia' ? 'Mia' : 'Mimi'} said: "${firstResponse}" — then ${second === 'mia' ? 'Mia' : 'Mimi'} replied: "${secondResponse}")`
+    // Relay loop: alternates between characters, max 6 total turns, 50% chance each extra turn
+    const MAX_TURNS = 6;
+    let currentChar = first;
+    let prevChar = second;
+    let prevResponse = secondResponse;
+    let currentHistory = afterSecond;
+    let turn = 2; // already did 2 turns
+
+    while (turn < MAX_TURNS && Math.random() < 0.5) {
+      const { response, history } = await runCharacter(
+        currentChar,
+        currentHistory,
+        `(${name(prevChar)} just said: "${prevResponse}")`
       );
+      prevResponse = response;
+      currentHistory = history;
+      [currentChar, prevChar] = [prevChar, currentChar];
+      turn++;
     }
 
     setIsStreaming(false);
