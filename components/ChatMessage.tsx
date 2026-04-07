@@ -20,6 +20,26 @@ function formatTime(isoString?: string): string {
 export default function ChatMessage({ message }: ChatMessageProps) {
   const isUser = message.role === 'user';
   const [isPlaying, setIsPlaying] = useState(false);
+  const [translation, setTranslation] = useState<string | null>(null);
+  const [isTranslating, setIsTranslating] = useState(false);
+
+  const toggleTranslation = async () => {
+    if (translation !== null) { setTranslation(null); return; }
+    setIsTranslating(true);
+    try {
+      const res = await fetch('/api/translate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: message.content }),
+      });
+      const { result } = await res.json();
+      setTranslation(result);
+    } catch {
+      setTranslation('翻訳できませんでした');
+    } finally {
+      setIsTranslating(false);
+    }
+  };
   const activeRef = useRef(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -121,25 +141,41 @@ export default function ChatMessage({ message }: ChatMessageProps) {
           <p className="whitespace-pre-wrap break-words">{message.content}</p>
         </div>
 
-        {/* Timestamp + speaker button row */}
+        {/* Translation hint */}
+        {!isUser && translation !== null && (
+          <div className="text-xs text-gray-600 bg-yellow-50 border border-yellow-200 rounded-xl px-3 py-2 leading-relaxed whitespace-pre-wrap">
+            {translation}
+          </div>
+        )}
+
+        {/* Timestamp + buttons row */}
         <div className={`flex items-center gap-2 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
           <span className="text-[10px] text-gray-400">{formatTime(message.created_at)}</span>
           {!isUser && (
-            <button
-              onClick={toggleAudio}
-              className="text-purple-400 hover:text-purple-600 transition-colors"
-              title="Read aloud"
-            >
-              {isPlaying ? (
-                <svg className="w-4 h-4 animate-pulse" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/>
-                </svg>
-              ) : (
-                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
-                </svg>
-              )}
-            </button>
+            <>
+              <button
+                onClick={toggleAudio}
+                className="text-purple-400 hover:text-purple-600 transition-colors"
+                title="Read aloud"
+              >
+                {isPlaying ? (
+                  <svg className="w-4 h-4 animate-pulse" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/>
+                  </svg>
+                ) : (
+                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+                  </svg>
+                )}
+              </button>
+              <button
+                onClick={toggleTranslation}
+                className={`text-xs font-bold transition-colors ${translation !== null ? 'text-yellow-500 hover:text-yellow-600' : 'text-gray-400 hover:text-yellow-500'}`}
+                title="日本語訳を見る"
+              >
+                {isTranslating ? '...' : '訳'}
+              </button>
+            </>
           )}
         </div>
       </div>
