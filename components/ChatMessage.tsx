@@ -37,13 +37,32 @@ function formatTime(isoString?: string): string {
   return date.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
 }
 
-export default function ChatMessage({ message }: ChatMessageProps) {
+export default function ChatMessage({ message, sessionId }: ChatMessageProps & { sessionId?: string }) {
   const isUser = message.role === 'user';
   const char = isUser ? null : CHARACTERS[message.character ?? 'mia'];
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [translation, setTranslation] = useState<string | null>(null);
   const [isTranslating, setIsTranslating] = useState(false);
+  const [saveState, setSaveState] = useState<'idle' | 'editing' | 'saving' | 'saved'>('idle');
+  const [editPhrase, setEditPhrase] = useState('');
+
+  const openSave = () => {
+    setEditPhrase(displayText.trim());
+    setSaveState('editing');
+  };
+
+  const confirmSave = async () => {
+    if (!editPhrase.trim() || !sessionId) return;
+    setSaveState('saving');
+    await fetch('/api/vocab-save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phrase: editPhrase.trim(), sessionId }),
+    });
+    setSaveState('saved');
+    setTimeout(() => setSaveState('idle'), 2000);
+  };
 
   const toggleTranslation = async () => {
     if (translation !== null) { setTranslation(null); return; }
@@ -195,6 +214,22 @@ export default function ChatMessage({ message }: ChatMessageProps) {
           <p className="whitespace-pre-wrap break-words">{displayText}</p>
         </div>
 
+        {/* Save popup */}
+        {!isUser && saveState === 'editing' && (
+          <div className="bg-white border border-purple-200 rounded-xl px-3 py-2 shadow-sm">
+            <textarea
+              value={editPhrase}
+              onChange={e => setEditPhrase(e.target.value)}
+              className="w-full text-xs text-gray-700 resize-none outline-none leading-relaxed"
+              rows={3}
+            />
+            <div className="flex justify-end gap-2 mt-1">
+              <button onClick={() => setSaveState('idle')} className="text-xs text-gray-400 hover:text-gray-600">キャンセル</button>
+              <button onClick={confirmSave} className="text-xs font-bold text-purple-500 hover:text-purple-700">保存</button>
+            </div>
+          </div>
+        )}
+
         {/* Translation hint */}
         {!isUser && translation !== null && (
           <div className="text-xs text-gray-600 bg-yellow-50 border border-yellow-200 rounded-xl px-3 py-2 leading-relaxed whitespace-pre-wrap">
@@ -228,6 +263,19 @@ export default function ChatMessage({ message }: ChatMessageProps) {
                 title="日本語訳を見る"
               >
                 {isTranslating ? '...' : '訳'}
+              </button>
+              <button
+                onClick={openSave}
+                className={`transition-colors ${saveState === 'saved' ? 'text-green-400' : 'text-gray-400 hover:text-purple-500'}`}
+                title="単語帳に保存"
+              >
+                {saveState === 'saving' ? (
+                  <svg className="w-3.5 h-3.5 animate-pulse" fill="currentColor" viewBox="0 0 24 24"><path d="M17 3H7a2 2 0 00-2 2v16l7-3 7 3V5a2 2 0 00-2-2z"/></svg>
+                ) : saveState === 'saved' ? (
+                  <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M17 3H7a2 2 0 00-2 2v16l7-3 7 3V5a2 2 0 00-2-2z"/></svg>
+                ) : (
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M17 3H7a2 2 0 00-2 2v16l7-3 7 3V5a2 2 0 00-2-2z"/></svg>
+                )}
               </button>
             </>
           )}

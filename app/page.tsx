@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase';
 import ChatMessage, { Message } from '@/components/ChatMessage';
 import ChatInput from '@/components/ChatInput';
 import CatAvatar from '@/components/CatAvatar';
+import VocabModal from '@/components/VocabModal';
 
 const INITIAL_MESSAGES: Message[] = [
   {
@@ -88,6 +89,7 @@ export default function HomePage() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingCharacter, setStreamingCharacter] = useState<'mia' | 'mimi' | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [showVocab, setShowVocab] = useState(false);
   const sessionIdRef = useRef<string>('');
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -275,9 +277,15 @@ export default function HomePage() {
             <span className="text-purple-400"> Manchester, UK</span>
           </p>
         </div>
-        <div className="ml-auto flex items-center gap-1.5 text-xs text-gray-400 bg-purple-50 px-3 py-1.5 rounded-full border border-purple-100">
-          <span className="w-2 h-2 bg-purple-400 rounded-full animate-pulse" />
-          Anime fans &amp; English helpers
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            onClick={() => setShowVocab(true)}
+            className="flex items-center gap-1.5 text-xs text-purple-500 hover:text-purple-700 bg-purple-50 hover:bg-purple-100 px-3 py-1.5 rounded-full border border-purple-100 transition-colors"
+            title="単語帳"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M17 3H7a2 2 0 00-2 2v16l7-3 7 3V5a2 2 0 00-2-2z"/></svg>
+            単語帳
+          </button>
         </div>
       </header>
 
@@ -294,7 +302,7 @@ export default function HomePage() {
         ) : (
           <>
             {messages.map((msg, idx) => (
-              <ChatMessage key={idx} message={msg} />
+              <ChatMessage key={idx} message={msg} sessionId={sessionIdRef.current} />
             ))}
 
             {/* Typing indicator */}
@@ -321,6 +329,11 @@ export default function HomePage() {
 
         <div ref={bottomRef} />
       </main>
+
+      {/* Vocab modal */}
+      {showVocab && (
+        <VocabModal sessionId={sessionIdRef.current} onClose={() => setShowVocab(false)} />
+      )}
 
       {/* Input */}
       <footer className="px-4 pb-5 pt-3 bg-white/70 backdrop-blur-sm border-t border-purple-100">
