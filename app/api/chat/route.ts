@@ -83,7 +83,10 @@ async function tavilySearch(query: string): Promise<TavilyResult> {
 
   const data = await res.json();
   const results = (data.results as Array<{ title: string; content: string; url: string }>) ?? [];
-  const images = (data.images as string[]) ?? [];
+  const rawImages = (data.images as Array<string | { url: string }>) ?? [];
+  const images = rawImages
+    .map((img) => (typeof img === 'string' ? img : img?.url ?? ''))
+    .filter((url) => url.startsWith('http'));
 
   return {
     text: results.map((r) => `${r.title}: ${r.content}`).join('\n\n'),
