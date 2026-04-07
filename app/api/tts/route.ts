@@ -1,7 +1,8 @@
-const VOICE_ID = 'mHX7OoPk2G45VMAuinIt';
+const DEFAULT_VOICE_ID = 'mHX7OoPk2G45VMAuinIt';
 
 export async function POST(req: Request) {
-  const { text } = await req.json();
+  const { text, voiceId } = await req.json();
+  const VOICE_ID = voiceId || DEFAULT_VOICE_ID;
 
   const response = await fetch(
     `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}`,

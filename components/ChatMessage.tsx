@@ -5,12 +5,30 @@ import { useState, useRef } from 'react';
 export interface Message {
   role: 'user' | 'assistant';
   content: string;
+  character?: 'mia' | 'mimi';
   created_at?: string;
 }
 
 interface ChatMessageProps {
   message: Message;
 }
+
+const CHARACTERS = {
+  mia: {
+    voiceId: 'mHX7OoPk2G45VMAuinIt',
+    avatar: '✨',
+    avatarBg: 'from-purple-400 to-pink-400',
+    bubbleBg: 'bg-purple-100 border-purple-200 text-gray-800',
+    name: 'Mia',
+  },
+  mimi: {
+    voiceId: 'hO2yZ8lxM3axUxL8OeKX',
+    avatar: '🔥',
+    avatarBg: 'from-orange-400 to-pink-500',
+    bubbleBg: 'bg-orange-100 border-orange-200 text-gray-800',
+    name: 'Mimi',
+  },
+};
 
 function formatTime(isoString?: string): string {
   const date = isoString ? new Date(isoString) : new Date();
@@ -19,6 +37,8 @@ function formatTime(isoString?: string): string {
 
 export default function ChatMessage({ message }: ChatMessageProps) {
   const isUser = message.role === 'user';
+  const char = isUser ? null : CHARACTERS[message.character ?? 'mia'];
+
   const [isPlaying, setIsPlaying] = useState(false);
   const [translation, setTranslation] = useState<string | null>(null);
   const [isTranslating, setIsTranslating] = useState(false);
@@ -40,12 +60,12 @@ export default function ChatMessage({ message }: ChatMessageProps) {
       setIsTranslating(false);
     }
   };
+
   const activeRef = useRef(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const toggleAudio = async () => {
-    // 再生中なら止める
     if (activeRef.current) {
       activeRef.current = false;
       abortRef.current?.abort();
@@ -64,7 +84,7 @@ export default function ChatMessage({ message }: ChatMessageProps) {
       const res = await fetch('/api/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: message.content }),
+        body: JSON.stringify({ text: message.content, voiceId: char?.voiceId }),
         signal: controller.signal,
       });
       if (!res.ok || !res.body || !activeRef.current) throw new Error('TTS failed');
@@ -74,7 +94,6 @@ export default function ChatMessage({ message }: ChatMessageProps) {
         MediaSource.isTypeSupported('audio/mpeg');
 
       if (supportsMediaSource) {
-        // ストリーミング再生（Chrome / Android）
         const mediaSource = new MediaSource();
         const url = URL.createObjectURL(mediaSource);
         const audio = new Audio(url);
@@ -101,7 +120,6 @@ export default function ChatMessage({ message }: ChatMessageProps) {
 
         audio.play();
       } else {
-        // フォールバック: blob再生（iOS Safari）
         const blob = await res.blob();
         if (!activeRef.current) return;
         const url = URL.createObjectURL(blob);
@@ -123,19 +141,24 @@ export default function ChatMessage({ message }: ChatMessageProps) {
   return (
     <div className={`flex items-end gap-2 mb-4 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
       {/* Avatar */}
-      {!isUser && (
-        <div className="flex-shrink-0 w-10 h-10 rounded-full bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center text-xl shadow-md">
-          ✨
+      {!isUser && char && (
+        <div className={`flex-shrink-0 w-10 h-10 rounded-full bg-gradient-to-br ${char.avatarBg} flex items-center justify-center text-xl shadow-md`}>
+          {char.avatar}
         </div>
       )}
 
       {/* Bubble + timestamp */}
       <div className={`flex flex-col gap-1 max-w-[75%] ${isUser ? 'items-end' : 'items-start'}`}>
+        {/* Character name label */}
+        {!isUser && char && (
+          <span className="text-[11px] font-semibold text-gray-500 px-1">{char.name}</span>
+        )}
+
         <div
           className={`px-4 py-3 rounded-2xl shadow-sm text-sm leading-relaxed ${
             isUser
               ? 'bg-indigo-600 text-white rounded-br-sm'
-              : 'bg-purple-100 text-gray-800 rounded-bl-sm border border-purple-200'
+              : `${char?.bubbleBg} rounded-bl-sm border`
           }`}
         >
           <p className="whitespace-pre-wrap break-words">{message.content}</p>
