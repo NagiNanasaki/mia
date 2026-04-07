@@ -32,6 +32,19 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
+      <head>
+        {/* Sync dark mode before first paint to prevent flash + fix iOS status bar */}
+        <script dangerouslySetInnerHTML={{ __html: `
+          (function() {
+            var dark = localStorage.getItem('mia_dark') === '1';
+            if (dark) {
+              document.documentElement.classList.add('dark');
+              var m = document.querySelector('meta[name="theme-color"]');
+              if (m) m.setAttribute('content', '#1f2937');
+            }
+          })();
+        `}} />
+      </head>
       <body className="min-h-full flex flex-col">{children}</body>
     </html>
   );

@@ -328,10 +328,10 @@ export default function HomePage() {
           </div>
         </div>
         <div>
-          <h1 className="text-lg font-bold text-gray-800 leading-tight">Mia &amp; Mimi</h1>
-          <p className="text-xs text-purple-500 font-medium">
+          <h1 className="text-lg font-bold text-gray-800 dark:text-gray-100 leading-tight">Mia &amp; Mimi</h1>
+          <p className="text-xs text-purple-500 dark:text-purple-300 font-medium">
             Your English practice squad ·
-            <span className="text-purple-400"> Manchester, UK</span>
+            <span className="text-purple-400 dark:text-purple-400"> Manchester, UK</span>
           </p>
         </div>
         <div className="ml-auto flex items-center gap-2">
