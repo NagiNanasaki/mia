@@ -1,38 +1,88 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import { v4 as uuidv4 } from 'uuid';
+import { supabase } from '@/lib/supabase';
 import ChatMessage, { Message } from '@/components/ChatMessage';
 import ChatInput from '@/components/ChatInput';
 
 const INITIAL_MESSAGE: Message = {
   role: 'assistant',
   content:
-    "Hiya! I'm Mia! 👋 Brilliant to meet you, mate! I'm absolutely mad about anime and love chatting with new people. I'm here to help you practise your English — don't be nervous, we'll just have a proper good chat! ✨\n\nSo, tell me about yourself — what are you into? Any anime fans here? 😄",
+    "Hiya! I'm Mia! Brilliant to meet you, mate! I'm absolutely mad about anime and love chatting with new people. I'm here to help you practise your English — don't be nervous, we'll just have a proper good chat! (^▽^)\n\nSo, tell me about yourself — what are you into? Any anime fans here?",
 };
 
+function getSessionId(): string {
+  let id = localStorage.getItem('mia_session_id');
+  if (!id) {
+    id = uuidv4();
+    localStorage.setItem('mia_session_id', id);
+  }
+  return id;
+}
+
 export default function HomePage() {
-  const [messages, setMessages] = useState<Message[]>([INITIAL_MESSAGE]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const sessionIdRef = useRef<string>('');
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  // Load history from Supabase on mount
+  useEffect(() => {
+    const init = async () => {
+      const sessionId = getSessionId();
+      sessionIdRef.current = sessionId;
+
+      const { data, error } = await supabase
+        .from('messages')
+        .select('role, content, created_at')
+        .eq('session_id', sessionId)
+        .order('created_at', { ascending: true });
+
+      if (!error && data && data.length > 0) {
+        setMessages(data as Message[]);
+      } else {
+        setMessages([INITIAL_MESSAGE]);
+      }
+      setIsLoading(false);
+    };
+    init();
+  }, []);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  const saveMessage = async (msg: { role: string; content: string }) => {
+    await supabase.from('messages').insert({
+      session_id: sessionIdRef.current,
+      role: msg.role,
+      content: msg.content,
+    });
+  };
+
   const sendMessage = async (userText: string) => {
-    const userMessage: Message = { role: 'user', content: userText };
+    const userMessage: Message = {
+      role: 'user',
+      content: userText,
+      created_at: new Date().toISOString(),
+    };
     const updatedMessages = [...messages, userMessage];
     setMessages(updatedMessages);
     setIsStreaming(true);
+
+    // Save user message to Supabase
+    await saveMessage({ role: 'user', content: userText });
 
     // Add placeholder for streaming response
     const assistantPlaceholder: Message = { role: 'assistant', content: '' };
     setMessages([...updatedMessages, assistantPlaceholder]);
 
     try {
-      // Build API messages (skip the initial greeting so the API sees only actual conversation turns)
+      // Build API messages (skip the initial greeting)
       const apiMessages = updatedMessages
-        .slice(1)
+        .slice(messages[0] === INITIAL_MESSAGE || messages[0]?.content === INITIAL_MESSAGE.content ? 1 : 0)
         .map((m) => ({ role: m.role, content: m.content }));
 
       const response = await fetch('/api/chat', {
@@ -57,21 +107,26 @@ export default function HomePage() {
         accumulated += decoder.decode(value, { stream: true });
         setMessages((prev) => {
           const updated = [...prev];
-          updated[updated.length - 1] = {
-            role: 'assistant',
-            content: accumulated,
-          };
+          updated[updated.length - 1] = { role: 'assistant', content: accumulated };
           return updated;
         });
       }
+
+      // Save completed assistant message to Supabase
+      await saveMessage({ role: 'assistant', content: accumulated });
+      const now = new Date().toISOString();
+      setMessages((prev) => {
+        const updated = [...prev];
+        updated[updated.length - 1] = { role: 'assistant', content: accumulated, created_at: now };
+        return updated;
+      });
     } catch (err) {
       console.error(err);
       setMessages((prev) => {
         const updated = [...prev];
         updated[updated.length - 1] = {
           role: 'assistant',
-          content:
-            "Oh no, something went a bit dodgy there! 😅 Could you try sending that again, mate? Cheers!",
+          content: "Oh no, something went a bit dodgy there! (＞＜) Could you try sending that again, mate? Cheers!",
         };
         return updated;
       });
@@ -93,7 +148,7 @@ export default function HomePage() {
         <div>
           <h1 className="text-lg font-bold text-gray-800 leading-tight">Mia</h1>
           <p className="text-xs text-purple-500 font-medium">
-            English practice buddy · Manchester, UK 🇬🇧
+            English practice buddy · Manchester, UK
           </p>
         </div>
         <div className="ml-auto flex items-center gap-1.5 text-xs text-gray-400 bg-purple-50 px-3 py-1.5 rounded-full border border-purple-100">
@@ -104,24 +159,36 @@ export default function HomePage() {
 
       {/* Messages */}
       <main className="flex-1 overflow-y-auto px-4 py-6 space-y-1">
-        {messages.map((msg, idx) => (
-          <ChatMessage key={idx} message={msg} />
-        ))}
-
-        {/* Typing indicator - show only when streaming and last message is empty */}
-        {isStreaming && messages[messages.length - 1]?.content === '' && (
-          <div className="flex items-end gap-2 mb-4">
-            <div className="flex-shrink-0 w-10 h-10 rounded-full bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center text-xl shadow-md">
-              ✨
-            </div>
-            <div className="bg-purple-100 border border-purple-200 rounded-2xl rounded-bl-sm px-4 py-3 shadow-sm">
-              <div className="flex gap-1 items-center h-5">
-                <span className="w-2 h-2 bg-purple-400 rounded-full animate-bounce [animation-delay:0ms]" />
-                <span className="w-2 h-2 bg-purple-400 rounded-full animate-bounce [animation-delay:150ms]" />
-                <span className="w-2 h-2 bg-purple-400 rounded-full animate-bounce [animation-delay:300ms]" />
-              </div>
+        {isLoading ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="flex gap-1 items-center text-purple-400">
+              <span className="w-2 h-2 bg-purple-400 rounded-full animate-bounce [animation-delay:0ms]" />
+              <span className="w-2 h-2 bg-purple-400 rounded-full animate-bounce [animation-delay:150ms]" />
+              <span className="w-2 h-2 bg-purple-400 rounded-full animate-bounce [animation-delay:300ms]" />
             </div>
           </div>
+        ) : (
+          <>
+            {messages.map((msg, idx) => (
+              <ChatMessage key={idx} message={msg} />
+            ))}
+
+            {/* Typing indicator */}
+            {isStreaming && messages[messages.length - 1]?.content === '' && (
+              <div className="flex items-end gap-2 mb-4">
+                <div className="flex-shrink-0 w-10 h-10 rounded-full bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center text-xl shadow-md">
+                  ✨
+                </div>
+                <div className="bg-purple-100 border border-purple-200 rounded-2xl rounded-bl-sm px-4 py-3 shadow-sm">
+                  <div className="flex gap-1 items-center h-5">
+                    <span className="w-2 h-2 bg-purple-400 rounded-full animate-bounce [animation-delay:0ms]" />
+                    <span className="w-2 h-2 bg-purple-400 rounded-full animate-bounce [animation-delay:150ms]" />
+                    <span className="w-2 h-2 bg-purple-400 rounded-full animate-bounce [animation-delay:300ms]" />
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
         )}
 
         <div ref={bottomRef} />
@@ -130,7 +197,7 @@ export default function HomePage() {
       {/* Input */}
       <footer className="px-4 pb-5 pt-3 bg-white/70 backdrop-blur-sm border-t border-purple-100">
         <div className="max-w-3xl mx-auto">
-          <ChatInput onSend={sendMessage} disabled={isStreaming} />
+          <ChatInput onSend={sendMessage} disabled={isStreaming || isLoading} />
           <p className="text-center text-xs text-gray-400 mt-2">
             Press{' '}
             <kbd className="bg-gray-100 px-1.5 py-0.5 rounded text-gray-500 font-mono text-xs">
