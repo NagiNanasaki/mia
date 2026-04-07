@@ -138,6 +138,14 @@ export default function ChatMessage({ message }: ChatMessageProps) {
     }
   };
 
+  // Parse [img:url] markers out of content
+  const imgRegex = /\[img:(https?:\/\/[^\]]+)\]/g;
+  const images: string[] = [];
+  const displayText = message.content.replace(imgRegex, (_, url: string) => {
+    images.push(url);
+    return '';
+  }).trimStart();
+
   return (
     <div className={`flex items-end gap-2 mb-4 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
       {/* Avatar */}
@@ -161,7 +169,21 @@ export default function ChatMessage({ message }: ChatMessageProps) {
               : `${char?.bubbleBg} rounded-bl-sm border`
           }`}
         >
-          <p className="whitespace-pre-wrap break-words">{message.content}</p>
+          {images.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-2">
+              {images.map((url, i) => (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  key={i}
+                  src={url}
+                  alt=""
+                  className="rounded-xl max-h-40 object-cover"
+                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                />
+              ))}
+            </div>
+          )}
+          <p className="whitespace-pre-wrap break-words">{displayText}</p>
         </div>
 
         {/* Translation hint */}

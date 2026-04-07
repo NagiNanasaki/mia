@@ -59,7 +59,12 @@ const webSearchTool: Anthropic.Tool = {
   },
 };
 
-async function tavilySearch(query: string): Promise<string> {
+interface TavilyResult {
+  text: string;
+  images: string[];
+}
+
+async function tavilySearch(query: string): Promise<TavilyResult> {
   const res = await fetch('https://api.tavily.com/search', {
     method: 'POST',
     headers: {
@@ -70,16 +75,20 @@ async function tavilySearch(query: string): Promise<string> {
       query,
       search_depth: 'basic',
       max_results: 3,
+      include_images: true,
     }),
   });
 
-  if (!res.ok) return 'Search failed.';
+  if (!res.ok) return { text: 'Search failed.', images: [] };
 
   const data = await res.json();
   const results = (data.results as Array<{ title: string; content: string; url: string }>) ?? [];
-  return results
-    .map((r) => `${r.title}: ${r.content}`)
-    .join('\n\n');
+  const images = (data.images as string[]) ?? [];
+
+  return {
+    text: results.map((r) => `${r.title}: ${r.content}`).join('\n\n'),
+    images: images.slice(0, 2),
+  };
 }
 
 export async function POST(req: Request) {
@@ -98,6 +107,7 @@ export async function POST(req: Request) {
   });
 
   let finalMessages = messages;
+  let searchImages: string[] = [];
 
   if (phase1.stop_reason === 'tool_use') {
     const toolUseBlock = phase1.content.find(
@@ -107,6 +117,7 @@ export async function POST(req: Request) {
     if (toolUseBlock) {
       const query = (toolUseBlock.input as { query: string }).query;
       const searchResult = await tavilySearch(query);
+      searchImages = searchResult.images;
 
       finalMessages = [
         ...messages,
@@ -117,14 +128,14 @@ export async function POST(req: Request) {
             {
               type: 'tool_result',
               tool_use_id: toolUseBlock.id,
-              content: searchResult,
+              content: searchResult.text,
             },
           ],
         },
       ];
     }
   } else {
-    // No tool use — stream the phase1 text response directly
+    // No tool use — return phase1 text response directly
     const text = phase1.content
       .filter((b): b is Anthropic.TextBlock => b.type === 'text')
       .map((b) => b.text)
@@ -145,8 +156,15 @@ export async function POST(req: Request) {
   });
 
   const encoder = new TextEncoder();
+  const imagePrefix = searchImages.length > 0
+    ? searchImages.map((url) => `[img:${url}]`).join('') + '\n'
+    : '';
+
   const readable = new ReadableStream({
     async start(controller) {
+      if (imagePrefix) {
+        controller.enqueue(encoder.encode(imagePrefix));
+      }
       for await (const chunk of stream) {
         if (
           chunk.type === 'content_block_delta' &&
