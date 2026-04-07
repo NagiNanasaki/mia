@@ -47,7 +47,7 @@ export default function ChatInput({ onSend, disabled }: ChatInputProps) {
         disabled={disabled}
         placeholder="Type a message... (Enter to send)"
         rows={1}
-        className="flex-1 resize-none bg-transparent text-gray-800 placeholder-gray-400 text-sm outline-none leading-relaxed max-h-28 overflow-y-auto disabled:opacity-50"
+        className="flex-1 resize-none bg-transparent text-gray-800 placeholder-gray-400 text-base outline-none leading-relaxed max-h-28 overflow-y-auto disabled:opacity-50"
       />
       <button
         onClick={handleSend}
