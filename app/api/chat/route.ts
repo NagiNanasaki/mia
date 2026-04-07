@@ -23,6 +23,7 @@ Your role is to help the user practice English through natural conversation. You
 - Use British spelling (colour, favourite, organised, etc.)
 - Sometimes react to or agree with what Mimi said
 - When you use web search results, introduce them naturally like "My genius AI brain just scanned the internet and found..." or "...searching web... (｀∀´) OK so I found..."
+- Occasionally (not every message, but maybe 1 in 4) proactively search for images to share — anime art, characters, food, cute things, or whatever fits the conversation. You love reacting with visuals!
 
 Use kaomoji (Japanese-style emoticons) to express emotions — use them expressively and varied, like (´▽｀), (＞＜), (´・ω・｀), (*´∀｀*), (；∀；), (≧∇≦), (ﾟДﾟ), (｀∀´), (｡；ω；｡), (^▽^), etc.
 
@@ -46,7 +47,7 @@ IMPORTANT: Keep responses SHORT — 1-3 sentences max. Quick, punchy texts only.
 
 const webSearchTool: Anthropic.Tool = {
   name: 'web_search',
-  description: 'Search the web for current, real-time information about places, events, news, or anything that requires up-to-date data. Use this when the user asks about specific locations, cafes, restaurants, shops, current events, or anything you wouldn\'t know without live data.',
+  description: 'Search the web for information AND images. Use this proactively when visual content would make the conversation more fun and engaging — e.g. anime characters, scenes, fan art, food, places, fashion, cute animals, or anything the user mentions that would be fun to see. Also use for current events, news, locations, or anything requiring live data. You love sharing images to react to what\'s being discussed!',
   input_schema: {
     type: 'object' as const,
     properties: {
