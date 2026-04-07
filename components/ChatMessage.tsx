@@ -184,7 +184,7 @@ export default function ChatMessage({ message, sessionId }: ChatMessageProps & {
           className={`px-4 py-3 rounded-2xl shadow-sm text-sm leading-relaxed ${
             isUser
               ? 'bg-indigo-600 text-white rounded-br-sm'
-              : `${char?.bubbleBg} rounded-bl-sm border`
+              : `${char?.bubbleBg} rounded-bl-sm border dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100`
           }`}
         >
           {stamps.length > 0 && (
@@ -211,7 +211,7 @@ export default function ChatMessage({ message, sessionId }: ChatMessageProps & {
 
         {/* Translation hint */}
         {!isUser && translation !== null && (
-          <div className="text-xs text-gray-600 bg-yellow-50 border border-yellow-200 rounded-xl px-3 py-2 leading-relaxed whitespace-pre-wrap">
+          <div className="text-xs text-gray-600 dark:text-gray-300 bg-yellow-50 dark:bg-gray-700 border border-yellow-200 dark:border-gray-600 rounded-xl px-3 py-2 leading-relaxed whitespace-pre-wrap">
             {translation}
           </div>
         )}

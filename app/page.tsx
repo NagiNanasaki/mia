@@ -7,6 +7,7 @@ import ChatMessage, { Message } from '@/components/ChatMessage';
 import ChatInput from '@/components/ChatInput';
 import CatAvatar from '@/components/CatAvatar';
 import VocabModal from '@/components/VocabModal';
+import UsernameModal from '@/components/UsernameModal';
 
 const DEFAULT_SUGGESTIONS = [
   "What's your favourite anime right now?",
@@ -64,12 +65,13 @@ function buildApiMessages(
 async function streamResponse(
   apiMessages: { role: 'user' | 'assistant'; content: string }[],
   character: 'mia' | 'mimi',
-  onChunk: (accumulated: string) => void
+  onChunk: (accumulated: string) => void,
+  username?: string | null,
 ): Promise<string> {
   const response = await fetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages: apiMessages, character }),
+    body: JSON.stringify({ messages: apiMessages, character, username }),
   });
 
   if (!response.ok) throw new Error(`API error: ${response.status}`);
@@ -98,6 +100,9 @@ export default function HomePage() {
   const [showVocab, setShowVocab] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>(DEFAULT_SUGGESTIONS);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const [username, setUsername] = useState<string | null>(null);
+  const [showUsernameModal, setShowUsernameModal] = useState(false);
+  const [darkMode, setDarkMode] = useState(false);
   const sessionIdRef = useRef<string>('');
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -105,6 +110,15 @@ export default function HomePage() {
     const init = async () => {
       const sessionId = getSessionId();
       sessionIdRef.current = sessionId;
+
+      // Load username & dark mode from localStorage
+      const savedName = localStorage.getItem('mia_username');
+      if (savedName) setUsername(savedName);
+      else setShowUsernameModal(true);
+
+      const savedDark = localStorage.getItem('mia_dark') === '1';
+      setDarkMode(savedDark);
+      document.documentElement.classList.toggle('dark', savedDark);
 
       const { data, error } = await supabase
         .from('messages')
@@ -138,6 +152,19 @@ export default function HomePage() {
       content: msg.content,
       character: msg.character ?? null,
     });
+  };
+
+  const saveUsername = (name: string) => {
+    localStorage.setItem('mia_username', name);
+    setUsername(name);
+    setShowUsernameModal(false);
+  };
+
+  const toggleDark = () => {
+    const next = !darkMode;
+    setDarkMode(next);
+    localStorage.setItem('mia_dark', next ? '1' : '0');
+    document.documentElement.classList.toggle('dark', next);
   };
 
   const isInitialMessages = (msgs: Message[]) =>
@@ -183,7 +210,7 @@ export default function HomePage() {
             updated[updated.length - 1] = { role: 'assistant', character: char, content: preview };
             return updated;
           });
-        });
+        }, username);
 
         // Split into parts after streaming completes
         const parts = raw.split(/\[split\]/gi).map(p => p.trim()).filter(Boolean);
@@ -278,9 +305,12 @@ export default function HomePage() {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-indigo-50">
+    <div className="flex flex-col h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-indigo-50 dark:from-gray-900 dark:via-gray-900 dark:to-gray-800">
+      {/* Username modal */}
+      {showUsernameModal && <UsernameModal onSave={saveUsername} />}
+
       {/* Header */}
-      <header className="flex items-center gap-3 px-5 py-4 bg-white/80 backdrop-blur-sm border-b border-purple-100 shadow-sm">
+      <header className="flex items-center gap-3 px-5 py-4 bg-white/80 dark:bg-gray-800/90 backdrop-blur-sm border-b border-purple-100 dark:border-gray-700 shadow-sm">
         <div className="flex -space-x-2">
           <div className="w-11 h-11 rounded-full overflow-hidden shadow-md border-2 border-white z-10">
             <CatAvatar variant="mia" size={44} />
@@ -297,9 +327,25 @@ export default function HomePage() {
           </p>
         </div>
         <div className="ml-auto flex items-center gap-2">
+          {username && (
+            <button onClick={() => setShowUsernameModal(true)} className="text-xs text-gray-400 dark:text-gray-500 hover:text-purple-500 transition-colors hidden sm:block">
+              {username}
+            </button>
+          )}
+          <button
+            onClick={toggleDark}
+            className="text-gray-400 hover:text-purple-500 dark:text-gray-400 dark:hover:text-yellow-400 transition-colors p-1.5"
+            title={darkMode ? 'ライトモード' : 'ダークモード'}
+          >
+            {darkMode ? (
+              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m12.728 0l-.707-.707M6.343 6.343l-.707-.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+            ) : (
+              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+            )}
+          </button>
           <button
             onClick={() => setShowVocab(true)}
-            className="flex items-center gap-1.5 text-xs text-purple-500 hover:text-purple-700 bg-purple-50 hover:bg-purple-100 px-3 py-1.5 rounded-full border border-purple-100 transition-colors"
+            className="flex items-center gap-1.5 text-xs text-purple-500 hover:text-purple-700 bg-purple-50 dark:bg-gray-700 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-gray-600 px-3 py-1.5 rounded-full border border-purple-100 dark:border-gray-600 transition-colors"
             title="単語帳"
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M17 3H7a2 2 0 00-2 2v16l7-3 7 3V5a2 2 0 00-2-2z"/></svg>
@@ -355,7 +401,7 @@ export default function HomePage() {
       )}
 
       {/* Input */}
-      <footer className="px-4 pb-5 pt-3 bg-white/70 backdrop-blur-sm border-t border-purple-100">
+      <footer className="px-4 pb-5 pt-3 bg-white/70 dark:bg-gray-800/80 backdrop-blur-sm border-t border-purple-100 dark:border-gray-700">
         <div className="max-w-3xl mx-auto">
           {/* Suggestion chips */}
           {!isStreaming && (

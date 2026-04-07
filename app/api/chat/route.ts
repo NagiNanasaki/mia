@@ -136,9 +136,12 @@ async function tavilySearch(query: string): Promise<TavilyResult> {
 }
 
 export async function POST(req: Request) {
-  const { messages, character = 'mia' } = await req.json();
+  const { messages, character = 'mia', username } = await req.json();
 
-  const systemPrompt = character === 'mimi' ? MIMI_SYSTEM_PROMPT : MIA_SYSTEM_PROMPT;
+  const basePrompt = character === 'mimi' ? MIMI_SYSTEM_PROMPT : MIA_SYSTEM_PROMPT;
+  const systemPrompt = username
+    ? `${basePrompt}\n\nThe user's name is ${username}. Call them by name occasionally in a natural way — not every message, but when it feels right.`
+    : basePrompt;
 
   // Phase 1: non-streaming call with tool available
   const phase1 = await client.messages.create({

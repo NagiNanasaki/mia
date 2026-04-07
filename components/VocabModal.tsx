@@ -39,14 +39,14 @@ export default function VocabModal({ sessionId, onClose }: Props) {
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full sm:max-w-md bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl max-h-[80vh] flex flex-col">
+      <div className="relative w-full sm:max-w-md bg-white dark:bg-gray-800 rounded-t-3xl sm:rounded-2xl shadow-2xl max-h-[80vh] flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-purple-100">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-purple-100 dark:border-gray-700">
           <div>
-            <h2 className="text-base font-bold text-gray-800">単語帳</h2>
+            <h2 className="text-base font-bold text-gray-800 dark:text-gray-100">単語帳</h2>
             <p className="text-xs text-gray-400">{items.length}件保存済み</p>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none">✕</button>
         </div>
 
         {/* List */}
@@ -67,16 +67,16 @@ export default function VocabModal({ sessionId, onClose }: Props) {
             </div>
           ) : (
             items.map(item => (
-              <div key={item.id} className="bg-purple-50 border border-purple-100 rounded-xl px-4 py-3">
+              <div key={item.id} className="bg-purple-50 dark:bg-gray-700 border border-purple-100 dark:border-gray-600 rounded-xl px-4 py-3">
                 <div className="flex items-start justify-between gap-2">
-                  <p className="text-sm font-semibold text-gray-800 leading-snug">{item.phrase}</p>
+                  <p className="text-sm font-semibold text-gray-800 dark:text-gray-100 leading-snug">{item.phrase}</p>
                   <button
                     onClick={() => deleteItem(item.id)}
                     className="text-gray-300 hover:text-red-400 transition-colors flex-shrink-0 text-base leading-none mt-0.5"
                   >✕</button>
                 </div>
                 {item.translation && (
-                  <p className="text-xs text-gray-500 mt-1.5 leading-relaxed">{item.translation}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5 leading-relaxed">{item.translation}</p>
                 )}
               </div>
             ))
