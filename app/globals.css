@@ -28,3 +28,11 @@ body {
 
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* Ensure dark background reaches status bar area on iOS PWA */
+html.dark {
+  background-color: #111827;
+}
+html.dark body {
+  background-color: #111827;
+}

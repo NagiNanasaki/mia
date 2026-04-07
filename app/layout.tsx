@@ -39,8 +39,10 @@ export default function RootLayout({
             var dark = localStorage.getItem('mia_dark') === '1';
             if (dark) {
               document.documentElement.classList.add('dark');
+              document.documentElement.style.backgroundColor = '#111827';
+              document.body && (document.body.style.backgroundColor = '#111827');
               var m = document.querySelector('meta[name="theme-color"]');
-              if (m) m.setAttribute('content', '#1f2937');
+              if (m) m.setAttribute('content', '#111827');
             }
           })();
         `}} />

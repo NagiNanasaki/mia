@@ -120,7 +120,7 @@ export default function HomePage() {
       setDarkMode(savedDark);
       document.documentElement.classList.toggle('dark', savedDark);
       const meta = document.querySelector('meta[name="theme-color"]');
-      if (meta && savedDark) meta.setAttribute('content', '#1f2937');
+      if (meta && savedDark) meta.setAttribute('content', '#111827');
 
       const { data, error } = await supabase
         .from('messages')
@@ -180,7 +180,9 @@ export default function HomePage() {
     localStorage.setItem('mia_dark', next ? '1' : '0');
     document.documentElement.classList.toggle('dark', next);
     const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', next ? '#1f2937' : '#ffffff');
+    if (meta) meta.setAttribute('content', next ? '#111827' : '#ffffff');
+    document.documentElement.style.backgroundColor = next ? '#111827' : '';
+    document.body.style.backgroundColor = next ? '#111827' : '';
   };
 
   const isInitialMessages = (msgs: Message[]) =>
