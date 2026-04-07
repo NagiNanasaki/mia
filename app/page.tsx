@@ -147,116 +147,73 @@ export default function HomePage() {
 
     await saveMessage({ role: 'user', content: userText });
 
-    // === Mia responds first ===
-    setStreamingCharacter('mia');
-    const miaPlaceholder: Message = { role: 'assistant', character: 'mia', content: '' };
-    setMessages([...updatedMessages, miaPlaceholder]);
+    const ERRORS = {
+      mia: "Oh no, something went a bit dodgy there! (＞＜) Could you try sending that again, mate? Cheers!",
+      mimi: "omg something broke lol (｡>﹏<｡) sorry!! try again??",
+    };
 
-    let miaResponse = '';
-    try {
-      const miaApiMessages = buildApiMessages(updatedMessages, 'mia');
-      miaResponse = await streamResponse(miaApiMessages, 'mia', (accumulated) => {
-        setMessages((prev) => {
-          const updated = [...prev];
-          updated[updated.length - 1] = { role: 'assistant', character: 'mia', content: accumulated };
-          return updated;
-        });
-      });
+    // Helper: stream one character's response and persist it
+    const runCharacter = async (
+      char: 'mia' | 'mimi',
+      currentMessages: Message[],
+      contextNote?: string,
+    ): Promise<{ response: string; history: Message[] }> => {
+      setStreamingCharacter(char);
+      const placeholder: Message = { role: 'assistant', character: char, content: '' };
+      setMessages([...currentMessages, placeholder]);
 
-      const now = new Date().toISOString();
-      setMessages((prev) => {
-        const updated = [...prev];
-        updated[updated.length - 1] = { role: 'assistant', character: 'mia', content: miaResponse, created_at: now };
-        return updated;
-      });
-      await saveMessage({ role: 'assistant', content: miaResponse, character: 'mia' });
-    } catch (err) {
-      console.error(err);
-      miaResponse = "Oh no, something went a bit dodgy there! (＞＜) Could you try sending that again, mate? Cheers!";
-      setMessages((prev) => {
-        const updated = [...prev];
-        updated[updated.length - 1] = { role: 'assistant', character: 'mia', content: miaResponse };
-        return updated;
-      });
-    }
-
-    // === Mimi responds second ===
-    setStreamingCharacter('mimi');
-    const afterMia = [...updatedMessages, { role: 'assistant' as const, character: 'mia' as const, content: miaResponse }];
-    const mimiPlaceholder: Message = { role: 'assistant', character: 'mimi', content: '' };
-    setMessages([...afterMia, mimiPlaceholder]);
-
-    let mimiResponse = '';
-    try {
-      const mimiApiMessages = buildApiMessages(updatedMessages, 'mimi', `(Mia just said: "${miaResponse}")`);
-      mimiResponse = await streamResponse(mimiApiMessages, 'mimi', (accumulated) => {
-        setMessages((prev) => {
-          const updated = [...prev];
-          updated[updated.length - 1] = { role: 'assistant', character: 'mimi', content: accumulated };
-          return updated;
-        });
-      });
-
-      const now = new Date().toISOString();
-      setMessages((prev) => {
-        const updated = [...prev];
-        updated[updated.length - 1] = { role: 'assistant', character: 'mimi', content: mimiResponse, created_at: now };
-        return updated;
-      });
-      await saveMessage({ role: 'assistant', content: mimiResponse, character: 'mimi' });
-    } catch (err) {
-      console.error(err);
-      mimiResponse = "omg something broke lol (｡>﹏<｡) sorry!! try again??";
-      setMessages((prev) => {
-        const updated = [...prev];
-        updated[updated.length - 1] = { role: 'assistant', character: 'mimi', content: mimiResponse };
-        return updated;
-      });
-    }
-
-    // === Mia responds again (40% chance) ===
-    if (mimiResponse && Math.random() < 0.4) {
-      setStreamingCharacter('mia');
-      const afterMimi = [
-        ...afterMia,
-        { role: 'assistant' as const, character: 'mimi' as const, content: mimiResponse },
-      ];
-      const mia2Placeholder: Message = { role: 'assistant', character: 'mia', content: '' };
-      setMessages([...afterMimi, mia2Placeholder]);
-
+      let response = '';
       try {
-        const mia2ApiMessages = buildApiMessages(
-          updatedMessages,
-          'mia',
-          `(Mia said: "${miaResponse}" — then Mimi replied: "${mimiResponse}")`
-        );
-        const mia2Response = await streamResponse(mia2ApiMessages, 'mia', (accumulated) => {
+        const apiMessages = buildApiMessages(updatedMessages, char, contextNote);
+        response = await streamResponse(apiMessages, char, (accumulated) => {
           setMessages((prev) => {
             const updated = [...prev];
-            updated[updated.length - 1] = { role: 'assistant', character: 'mia', content: accumulated };
+            updated[updated.length - 1] = { role: 'assistant', character: char, content: accumulated };
             return updated;
           });
         });
-
         const now = new Date().toISOString();
         setMessages((prev) => {
           const updated = [...prev];
-          updated[updated.length - 1] = { role: 'assistant', character: 'mia', content: mia2Response, created_at: now };
+          updated[updated.length - 1] = { role: 'assistant', character: char, content: response, created_at: now };
           return updated;
         });
-        await saveMessage({ role: 'assistant', content: mia2Response, character: 'mia' });
+        await saveMessage({ role: 'assistant', content: response, character: char });
       } catch (err) {
         console.error(err);
+        response = ERRORS[char];
         setMessages((prev) => {
           const updated = [...prev];
-          updated[updated.length - 1] = {
-            role: 'assistant',
-            character: 'mia',
-            content: "...wait my AI brain glitched for a sec (＞＜) anyway—",
-          };
+          updated[updated.length - 1] = { role: 'assistant', character: char, content: response };
           return updated;
         });
       }
+
+      const history: Message[] = [...currentMessages, { role: 'assistant', character: char, content: response }];
+      return { response, history };
+    };
+
+    // Randomly decide who goes first (50/50)
+    const first: 'mia' | 'mimi' = Math.random() < 0.5 ? 'mia' : 'mimi';
+    const second: 'mia' | 'mimi' = first === 'mia' ? 'mimi' : 'mia';
+
+    // First character responds (no context)
+    const { response: firstResponse, history: afterFirst } = await runCharacter(first, updatedMessages);
+
+    // Second character responds (with first's context)
+    const { response: secondResponse, history: afterSecond } = await runCharacter(
+      second,
+      afterFirst,
+      `(${first === 'mia' ? 'Mia' : 'Mimi'} just said: "${firstResponse}")`
+    );
+
+    // First character replies again (40% chance)
+    if (secondResponse && Math.random() < 0.4) {
+      await runCharacter(
+        first,
+        afterSecond,
+        `(${first === 'mia' ? 'Mia' : 'Mimi'} said: "${firstResponse}" — then ${second === 'mia' ? 'Mia' : 'Mimi'} replied: "${secondResponse}")`
+      );
     }
 
     setIsStreaming(false);
