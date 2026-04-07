@@ -44,24 +44,19 @@ export default function ChatMessage({ message, sessionId }: ChatMessageProps & {
   const [isPlaying, setIsPlaying] = useState(false);
   const [translation, setTranslation] = useState<string | null>(null);
   const [isTranslating, setIsTranslating] = useState(false);
-  const [saveState, setSaveState] = useState<'idle' | 'editing' | 'saving' | 'saved'>('idle');
-  const [editPhrase, setEditPhrase] = useState('');
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'none'>('idle');
 
-  const openSave = () => {
-    setEditPhrase(displayText.trim());
-    setSaveState('editing');
-  };
-
-  const confirmSave = async () => {
-    if (!editPhrase.trim() || !sessionId) return;
+  const handleSave = async () => {
+    if (!sessionId || saveState !== 'idle') return;
     setSaveState('saving');
-    await fetch('/api/vocab-save', {
+    const res = await fetch('/api/vocab-save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phrase: editPhrase.trim(), sessionId }),
+      body: JSON.stringify({ message: displayText.trim(), sessionId }),
     });
-    setSaveState('saved');
-    setTimeout(() => setSaveState('idle'), 2000);
+    const { saved } = await res.json();
+    setSaveState(saved > 0 ? 'saved' : 'none');
+    setTimeout(() => setSaveState('idle'), 2500);
   };
 
   const toggleTranslation = async () => {
@@ -214,22 +209,6 @@ export default function ChatMessage({ message, sessionId }: ChatMessageProps & {
           <p className="whitespace-pre-wrap break-words">{displayText}</p>
         </div>
 
-        {/* Save popup */}
-        {!isUser && saveState === 'editing' && (
-          <div className="bg-white border border-purple-200 rounded-xl px-3 py-2 shadow-sm">
-            <textarea
-              value={editPhrase}
-              onChange={e => setEditPhrase(e.target.value)}
-              className="w-full text-xs text-gray-700 resize-none outline-none leading-relaxed"
-              rows={3}
-            />
-            <div className="flex justify-end gap-2 mt-1">
-              <button onClick={() => setSaveState('idle')} className="text-xs text-gray-400 hover:text-gray-600">キャンセル</button>
-              <button onClick={confirmSave} className="text-xs font-bold text-purple-500 hover:text-purple-700">保存</button>
-            </div>
-          </div>
-        )}
-
         {/* Translation hint */}
         {!isUser && translation !== null && (
           <div className="text-xs text-gray-600 bg-yellow-50 border border-yellow-200 rounded-xl px-3 py-2 leading-relaxed whitespace-pre-wrap">
@@ -265,12 +244,13 @@ export default function ChatMessage({ message, sessionId }: ChatMessageProps & {
                 {isTranslating ? '...' : '訳'}
               </button>
               <button
-                onClick={openSave}
-                className={`transition-colors ${saveState === 'saved' ? 'text-green-400' : 'text-gray-400 hover:text-purple-500'}`}
-                title="単語帳に保存"
+                onClick={handleSave}
+                disabled={saveState !== 'idle'}
+                className={`transition-colors ${saveState === 'saved' ? 'text-green-400' : saveState === 'none' ? 'text-gray-300' : 'text-gray-400 hover:text-purple-500'}`}
+                title={saveState === 'saved' ? '保存しました' : saveState === 'none' ? '該当なし' : '単語帳に一括保存'}
               >
                 {saveState === 'saving' ? (
-                  <svg className="w-3.5 h-3.5 animate-pulse" fill="currentColor" viewBox="0 0 24 24"><path d="M17 3H7a2 2 0 00-2 2v16l7-3 7 3V5a2 2 0 00-2-2z"/></svg>
+                  <svg className="w-3.5 h-3.5 animate-spin" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
                 ) : saveState === 'saved' ? (
                   <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M17 3H7a2 2 0 00-2 2v16l7-3 7 3V5a2 2 0 00-2-2z"/></svg>
                 ) : (
