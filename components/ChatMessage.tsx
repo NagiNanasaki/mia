@@ -2,6 +2,7 @@
 
 import { useState, useRef } from 'react';
 import CatAvatar from './CatAvatar';
+import Stamp from './Stamp';
 
 export interface Message {
   role: 'user' | 'assistant';
@@ -139,13 +140,15 @@ export default function ChatMessage({ message }: ChatMessageProps) {
     }
   };
 
-  // Parse [img:url] markers out of content
+  // Parse [img:url] and [stamp:name] markers out of content
   const imgRegex = /\[img:(https?:\/\/[^\]]+)\]/g;
+  const stampRegex = /\[stamp:([a-z]+)\]/gi;
   const images: string[] = [];
-  const displayText = message.content.replace(imgRegex, (_, url: string) => {
-    images.push(url);
-    return '';
-  }).trimStart();
+  const stamps: string[] = [];
+  const displayText = message.content
+    .replace(imgRegex, (_, url: string) => { images.push(url); return ''; })
+    .replace(stampRegex, (_, name: string) => { stamps.push(name.toLowerCase()); return ''; })
+    .trimStart();
 
   return (
     <div className={`flex items-end gap-2 mb-4 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
@@ -170,6 +173,11 @@ export default function ChatMessage({ message }: ChatMessageProps) {
               : `${char?.bubbleBg} rounded-bl-sm border`
           }`}
         >
+          {stamps.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-2">
+              {stamps.map((name, i) => <Stamp key={i} name={name} />)}
+            </div>
+          )}
           {images.length > 0 && (
             <div className="flex flex-wrap gap-2 mb-2">
               {images.map((url, i) => (
