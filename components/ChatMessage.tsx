@@ -49,32 +49,51 @@ export default function ChatMessage({ message }: ChatMessageProps) {
       });
       if (!res.ok || !res.body || !activeRef.current) throw new Error('TTS failed');
 
-      const mediaSource = new MediaSource();
-      const url = URL.createObjectURL(mediaSource);
-      const audio = new Audio(url);
-      audioRef.current = audio;
-      audio.onended = () => {
-        activeRef.current = false;
-        setIsPlaying(false);
-        URL.revokeObjectURL(url);
-      };
+      const supportsMediaSource =
+        typeof MediaSource !== 'undefined' &&
+        MediaSource.isTypeSupported('audio/mpeg');
 
-      mediaSource.addEventListener('sourceopen', () => {
-        const sb = mediaSource.addSourceBuffer('audio/mpeg');
-        const reader = res.body!.getReader();
-
-        const pump = () => {
-          reader.read().then(({ done, value }) => {
-            if (!activeRef.current) { reader.cancel(); mediaSource.endOfStream(); return; }
-            if (done) { mediaSource.endOfStream(); return; }
-            sb.appendBuffer(value);
-          });
+      if (supportsMediaSource) {
+        // ストリーミング再生（Chrome / Android）
+        const mediaSource = new MediaSource();
+        const url = URL.createObjectURL(mediaSource);
+        const audio = new Audio(url);
+        audioRef.current = audio;
+        audio.onended = () => {
+          activeRef.current = false;
+          setIsPlaying(false);
+          URL.revokeObjectURL(url);
         };
-        sb.addEventListener('updateend', pump);
-        pump();
-      });
 
-      audio.play();
+        mediaSource.addEventListener('sourceopen', () => {
+          const sb = mediaSource.addSourceBuffer('audio/mpeg');
+          const reader = res.body!.getReader();
+          const pump = () => {
+            reader.read().then(({ done, value }) => {
+              if (!activeRef.current) { reader.cancel(); mediaSource.endOfStream(); return; }
+              if (done) { mediaSource.endOfStream(); return; }
+              sb.appendBuffer(value);
+            });
+          };
+          sb.addEventListener('updateend', pump);
+          pump();
+        });
+
+        audio.play();
+      } else {
+        // フォールバック: blob再生（iOS Safari）
+        const blob = await res.blob();
+        if (!activeRef.current) return;
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        audioRef.current = audio;
+        audio.onended = () => {
+          activeRef.current = false;
+          setIsPlaying(false);
+          URL.revokeObjectURL(url);
+        };
+        audio.play();
+      }
     } catch {
       activeRef.current = false;
       setIsPlaying(false);
