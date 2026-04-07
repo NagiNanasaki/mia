@@ -119,6 +119,8 @@ export default function HomePage() {
       const savedDark = localStorage.getItem('mia_dark') === '1';
       setDarkMode(savedDark);
       document.documentElement.classList.toggle('dark', savedDark);
+      const meta = document.querySelector('meta[name="theme-color"]');
+      if (meta && savedDark) meta.setAttribute('content', '#1f2937');
 
       const { data, error } = await supabase
         .from('messages')
@@ -177,6 +179,8 @@ export default function HomePage() {
     setDarkMode(next);
     localStorage.setItem('mia_dark', next ? '1' : '0');
     document.documentElement.classList.toggle('dark', next);
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', next ? '#1f2937' : '#ffffff');
   };
 
   const isInitialMessages = (msgs: Message[]) =>
@@ -314,7 +318,7 @@ export default function HomePage() {
       {showUsernameModal && <UsernameModal onSave={saveUsername} />}
 
       {/* Header */}
-      <header className="flex items-center gap-3 px-5 py-4 bg-white/80 dark:bg-gray-800/90 backdrop-blur-sm border-b border-purple-100 dark:border-gray-700 shadow-sm">
+      <header className="flex items-center gap-3 px-5 py-4 bg-white/80 dark:bg-gray-800/90 backdrop-blur-sm border-b border-purple-100 dark:border-gray-700 shadow-sm" style={{ paddingTop: 'max(1rem, env(safe-area-inset-top))' }}>
         <div className="flex -space-x-2">
           <div className="w-11 h-11 rounded-full overflow-hidden shadow-md border-2 border-white z-10">
             <CatAvatar variant="mia" size={44} />

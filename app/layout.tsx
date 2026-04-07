@@ -15,6 +15,11 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Mia — English Practice Chat",
   description: "Chat with Mia, your friendly British anime-loving English practice buddy!",
+  other: {
+    'theme-color': '#ffffff',
+    'apple-mobile-web-app-capable': 'yes',
+    'apple-mobile-web-app-status-bar-style': 'black-translucent',
+  },
 };
 
 export default function RootLayout({
