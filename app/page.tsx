@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { supabase } from '@/lib/supabase';
 import ChatMessage, { Message } from '@/components/ChatMessage';
 import ChatInput from '@/components/ChatInput';
+import CatAvatar from '@/components/CatAvatar';
 
 const INITIAL_MESSAGES: Message[] = [
   {
@@ -226,11 +227,11 @@ export default function HomePage() {
       {/* Header */}
       <header className="flex items-center gap-3 px-5 py-4 bg-white/80 backdrop-blur-sm border-b border-purple-100 shadow-sm">
         <div className="flex -space-x-2">
-          <div className="w-11 h-11 rounded-full bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center text-xl shadow-md border-2 border-white z-10">
-            ✨
+          <div className="w-11 h-11 rounded-full overflow-hidden shadow-md border-2 border-white z-10">
+            <CatAvatar variant="mia" size={44} />
           </div>
-          <div className="w-11 h-11 rounded-full bg-gradient-to-br from-orange-400 to-pink-500 flex items-center justify-center text-xl shadow-md border-2 border-white">
-            🔥
+          <div className="w-11 h-11 rounded-full overflow-hidden shadow-md border-2 border-white">
+            <CatAvatar variant="mimi" size={44} />
           </div>
         </div>
         <div>
@@ -265,10 +266,8 @@ export default function HomePage() {
             {/* Typing indicator */}
             {isStreaming && messages[messages.length - 1]?.content === '' && streamingCharacter && (
               <div className="flex items-end gap-2 mb-4">
-                <div className={`flex-shrink-0 w-10 h-10 rounded-full bg-gradient-to-br ${
-                  streamingCharacter === 'mia' ? 'from-purple-400 to-pink-400' : 'from-orange-400 to-pink-500'
-                } flex items-center justify-center text-xl shadow-md`}>
-                  {streamingCharacter === 'mia' ? '✨' : '🔥'}
+                <div className="flex-shrink-0 w-10 h-10 rounded-full overflow-hidden shadow-md">
+                  <CatAvatar variant={streamingCharacter} size={40} />
                 </div>
                 <div className={`rounded-2xl rounded-bl-sm px-4 py-3 shadow-sm border ${
                   streamingCharacter === 'mia'

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef } from 'react';
+import CatAvatar from './CatAvatar';
 
 export interface Message {
   role: 'user' | 'assistant';
@@ -150,8 +151,8 @@ export default function ChatMessage({ message }: ChatMessageProps) {
     <div className={`flex items-end gap-2 mb-4 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
       {/* Avatar */}
       {!isUser && char && (
-        <div className={`flex-shrink-0 w-10 h-10 rounded-full bg-gradient-to-br ${char.avatarBg} flex items-center justify-center text-xl shadow-md`}>
-          {char.avatar}
+        <div className="flex-shrink-0 w-10 h-10 rounded-full overflow-hidden shadow-md">
+          <CatAvatar variant={message.character ?? 'mia'} size={40} />
         </div>
       )}
 
