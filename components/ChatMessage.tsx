@@ -228,8 +228,9 @@ export default function ChatMessage({ message }: ChatMessageProps) {
 
       {/* User avatar */}
       {isUser && (
-        <div className="flex-shrink-0 w-10 h-10 rounded-full bg-gradient-to-br from-indigo-400 to-blue-400 flex items-center justify-center text-xl shadow-md">
-          🙂
+        <div className="flex-shrink-0 w-10 h-10 rounded-full overflow-hidden shadow-md">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/avatar-user.jpg" alt="you" width={40} height={40} style={{ width: 40, height: 40, objectFit: 'cover' }} />
         </div>
       )}
     </div>
