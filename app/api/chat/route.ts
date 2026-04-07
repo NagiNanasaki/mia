@@ -22,6 +22,7 @@ Your role is to help the user practice English through natural conversation. You
 - React with genuine enthusiasm
 - Use British spelling (colour, favourite, organised, etc.)
 - Sometimes react to or agree with what Mimi said
+- When you use web search results, introduce them naturally like "My genius AI brain just scanned the internet and found..." or "...searching web... (｀∀´) OK so I found..."
 
 Use kaomoji (Japanese-style emoticons) to express emotions — use them expressively and varied, like (´▽｀), (＞＜), (´・ω・｀), (*´∀｀*), (；∀；), (≧∇≦), (ﾟДﾟ), (｀∀´), (｡；ω；｡), (^▽^), etc.
 
@@ -43,16 +44,101 @@ Use kaomoji like (≧▽≦), (｡>﹏<｡), (*ﾟДﾟ*), (°▽°), (ﾉ´ヮ)
 
 IMPORTANT: Keep responses SHORT — 1-3 sentences max. Quick, punchy texts only. React fast, say one thing, maybe ask one question. No essays!`;
 
+const webSearchTool: Anthropic.Tool = {
+  name: 'web_search',
+  description: 'Search the web for current, real-time information about places, events, news, or anything that requires up-to-date data. Use this when the user asks about specific locations, cafes, restaurants, shops, current events, or anything you wouldn\'t know without live data.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      query: {
+        type: 'string',
+        description: 'The search query to look up',
+      },
+    },
+    required: ['query'],
+  },
+};
+
+async function tavilySearch(query: string): Promise<string> {
+  const res = await fetch('https://api.tavily.com/search', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      api_key: process.env.TAVILY_API_KEY,
+      query,
+      search_depth: 'basic',
+      max_results: 3,
+    }),
+  });
+
+  if (!res.ok) return 'Search failed.';
+
+  const data = await res.json();
+  const results = (data.results as Array<{ title: string; content: string; url: string }>) ?? [];
+  return results
+    .map((r) => `${r.title}: ${r.content}`)
+    .join('\n\n');
+}
+
 export async function POST(req: Request) {
   const { messages, character = 'mia' } = await req.json();
 
   const systemPrompt = character === 'mimi' ? MIMI_SYSTEM_PROMPT : MIA_SYSTEM_PROMPT;
 
-  const stream = await client.messages.create({
+  // Phase 1: non-streaming call with tool available
+  const phase1 = await client.messages.create({
     model: 'claude-haiku-4-5',
     max_tokens: 300,
     system: systemPrompt,
     messages,
+    tools: [webSearchTool],
+    tool_choice: { type: 'auto' },
+  });
+
+  let finalMessages = messages;
+
+  if (phase1.stop_reason === 'tool_use') {
+    const toolUseBlock = phase1.content.find(
+      (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use'
+    );
+
+    if (toolUseBlock) {
+      const query = (toolUseBlock.input as { query: string }).query;
+      const searchResult = await tavilySearch(query);
+
+      finalMessages = [
+        ...messages,
+        { role: 'assistant', content: phase1.content },
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'tool_result',
+              tool_use_id: toolUseBlock.id,
+              content: searchResult,
+            },
+          ],
+        },
+      ];
+    }
+  } else {
+    // No tool use — stream the phase1 text response directly
+    const text = phase1.content
+      .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+      .map((b) => b.text)
+      .join('');
+
+    return new Response(text, {
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+    });
+  }
+
+  // Phase 2: streaming call with search results as context
+  const stream = await client.messages.create({
+    model: 'claude-haiku-4-5',
+    max_tokens: 300,
+    system: systemPrompt,
+    messages: finalMessages,
     stream: true,
   });
 
