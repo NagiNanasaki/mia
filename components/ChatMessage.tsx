@@ -176,7 +176,7 @@ export default function ChatMessage({ message }: ChatMessageProps) {
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   key={i}
-                  src={url}
+                  src={`/api/image-proxy?url=${encodeURIComponent(url)}`}
                   alt=""
                   className="rounded-xl max-h-40 object-cover"
                   onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
