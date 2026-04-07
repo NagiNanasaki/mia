@@ -152,7 +152,7 @@ export default function HomePage() {
       mimi: "omg something broke lol (｡>﹏<｡) sorry!! try again??",
     };
 
-    // Helper: stream one character's response and persist it
+    // Helper: stream one character's response and persist it (handles [split])
     const runCharacter = async (
       char: 'mia' | 'mimi',
       currentMessages: Message[],
@@ -162,35 +162,59 @@ export default function HomePage() {
       const placeholder: Message = { role: 'assistant', character: char, content: '' };
       setMessages([...currentMessages, placeholder]);
 
-      let response = '';
+      let raw = '';
       try {
         const apiMessages = buildApiMessages(updatedMessages, char, contextNote);
-        response = await streamResponse(apiMessages, char, (accumulated) => {
+        raw = await streamResponse(apiMessages, char, (accumulated) => {
+          // During streaming, show without [split] markers
+          const preview = accumulated.replace(/\[split\]/gi, ' ').trimStart();
           setMessages((prev) => {
             const updated = [...prev];
-            updated[updated.length - 1] = { role: 'assistant', character: char, content: accumulated };
+            updated[updated.length - 1] = { role: 'assistant', character: char, content: preview };
             return updated;
           });
         });
+
+        // Split into parts after streaming completes
+        const parts = raw.split(/\[split\]/gi).map(p => p.trim()).filter(Boolean);
         const now = new Date().toISOString();
-        setMessages((prev) => {
-          const updated = [...prev];
-          updated[updated.length - 1] = { role: 'assistant', character: char, content: response, created_at: now };
-          return updated;
-        });
-        await saveMessage({ role: 'assistant', content: response, character: char });
+
+        if (parts.length <= 1) {
+          // No split — normal single bubble
+          setMessages((prev) => {
+            const updated = [...prev];
+            updated[updated.length - 1] = { role: 'assistant', character: char, content: raw, created_at: now };
+            return updated;
+          });
+          await saveMessage({ role: 'assistant', content: raw, character: char });
+        } else {
+          // Replace streaming bubble with first part, then add rest with delay
+          setMessages((prev) => {
+            const updated = [...prev];
+            updated[updated.length - 1] = { role: 'assistant', character: char, content: parts[0], created_at: now };
+            return updated;
+          });
+          await saveMessage({ role: 'assistant', content: parts[0], character: char });
+
+          for (let i = 1; i < parts.length; i++) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+            const partNow = new Date().toISOString();
+            setMessages((prev) => [...prev, { role: 'assistant', character: char, content: parts[i], created_at: partNow }]);
+            await saveMessage({ role: 'assistant', content: parts[i], character: char });
+          }
+        }
       } catch (err) {
         console.error(err);
-        response = ERRORS[char];
+        raw = ERRORS[char];
         setMessages((prev) => {
           const updated = [...prev];
-          updated[updated.length - 1] = { role: 'assistant', character: char, content: response };
+          updated[updated.length - 1] = { role: 'assistant', character: char, content: raw };
           return updated;
         });
       }
 
-      const history: Message[] = [...currentMessages, { role: 'assistant', character: char, content: response }];
-      return { response, history };
+      const history: Message[] = [...currentMessages, { role: 'assistant', character: char, content: raw }];
+      return { response: raw, history };
     };
 
     // Randomly decide who goes first (50/50)
