@@ -154,6 +154,18 @@ export default function HomePage() {
     });
   };
 
+  const fetchSuggestions = (msgs: Message[]) => {
+    setLoadingSuggestions(true);
+    fetch('/api/suggestions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: msgs.slice(-6) }),
+    })
+      .then(r => r.json())
+      .then(({ suggestions: s }) => { if (s?.length) setSuggestions(s); })
+      .finally(() => setLoadingSuggestions(false));
+  };
+
   const saveUsername = (name: string) => {
     localStorage.setItem('mia_username', name);
     setUsername(name);
@@ -293,15 +305,7 @@ export default function HomePage() {
     setStreamingCharacter(null);
 
     // Fetch contextual suggestions based on updated conversation
-    setLoadingSuggestions(true);
-    fetch('/api/suggestions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages: updatedMessages.slice(-6) }),
-    })
-      .then(r => r.json())
-      .then(({ suggestions: s }) => { if (s?.length) setSuggestions(s); })
-      .finally(() => setLoadingSuggestions(false));
+    fetchSuggestions(updatedMessages);
   };
 
   return (
@@ -412,15 +416,28 @@ export default function HomePage() {
                     <span key={d} className="w-1.5 h-1.5 bg-purple-300 rounded-full animate-bounce" style={{ animationDelay: `${d}ms` }} />
                   ))}
                 </div>
-              ) : suggestions.map((s, i) => (
-                <button
-                  key={i}
-                  onClick={() => sendMessage(s)}
-                  className="flex-shrink-0 text-xs text-purple-600 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-full px-3 py-1.5 transition-colors text-left"
-                >
-                  {s}
-                </button>
-              ))}
+              ) : (
+                <>
+                  {suggestions.map((s, i) => (
+                    <button
+                      key={i}
+                      onClick={() => sendMessage(s)}
+                      className="flex-shrink-0 text-xs text-purple-600 dark:text-purple-300 bg-purple-50 dark:bg-gray-700 hover:bg-purple-100 dark:hover:bg-gray-600 border border-purple-200 dark:border-gray-600 rounded-full px-3 py-1.5 transition-colors text-left"
+                    >
+                      {s}
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => fetchSuggestions(messages)}
+                    className="flex-shrink-0 text-gray-400 hover:text-purple-400 dark:hover:text-purple-300 transition-colors p-1.5"
+                    title="サジェストを更新"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                    </svg>
+                  </button>
+                </>
+              )}
             </div>
           )}
           <ChatInput onSend={sendMessage} disabled={isStreaming || isLoading} />
