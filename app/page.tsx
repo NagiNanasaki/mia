@@ -35,20 +35,18 @@ function getSessionId(): string {
 function buildApiMessages(
   history: Message[],
   character: 'mia' | 'mimi',
-  otherCharacterResponse?: string
+  contextNote?: string  // e.g. '(Mia just said: "...")' or '(Mimi just said: "...")'
 ) {
-  // Keep user messages + this character's assistant messages only
   const filtered = history
     .filter((m) => m.role === 'user' || m.character === character)
     .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
 
-  // For mimi, append mia's current response as context in the last user message
-  if (character === 'mimi' && otherCharacterResponse) {
+  if (contextNote) {
     const lastUserIdx = filtered.map((m) => m.role).lastIndexOf('user');
     if (lastUserIdx >= 0) {
       filtered[lastUserIdx] = {
         role: 'user',
-        content: `${filtered[lastUserIdx].content}\n\n(Mia just said: "${otherCharacterResponse}")`,
+        content: `${filtered[lastUserIdx].content}\n\n${contextNote}`,
       };
     }
   }
@@ -188,9 +186,10 @@ export default function HomePage() {
     const mimiPlaceholder: Message = { role: 'assistant', character: 'mimi', content: '' };
     setMessages([...afterMia, mimiPlaceholder]);
 
+    let mimiResponse = '';
     try {
-      const mimiApiMessages = buildApiMessages(updatedMessages, 'mimi', miaResponse);
-      const mimiResponse = await streamResponse(mimiApiMessages, 'mimi', (accumulated) => {
+      const mimiApiMessages = buildApiMessages(updatedMessages, 'mimi', `(Mia just said: "${miaResponse}")`);
+      mimiResponse = await streamResponse(mimiApiMessages, 'mimi', (accumulated) => {
         setMessages((prev) => {
           const updated = [...prev];
           updated[updated.length - 1] = { role: 'assistant', character: 'mimi', content: accumulated };
@@ -207,15 +206,57 @@ export default function HomePage() {
       await saveMessage({ role: 'assistant', content: mimiResponse, character: 'mimi' });
     } catch (err) {
       console.error(err);
+      mimiResponse = "omg something broke lol (｡>﹏<｡) sorry!! try again??";
       setMessages((prev) => {
         const updated = [...prev];
-        updated[updated.length - 1] = {
-          role: 'assistant',
-          character: 'mimi',
-          content: "omg something broke lol (｡>﹏<｡) sorry!! try again??",
-        };
+        updated[updated.length - 1] = { role: 'assistant', character: 'mimi', content: mimiResponse };
         return updated;
       });
+    }
+
+    // === Mia responds again (40% chance) ===
+    if (mimiResponse && Math.random() < 0.4) {
+      setStreamingCharacter('mia');
+      const afterMimi = [
+        ...afterMia,
+        { role: 'assistant' as const, character: 'mimi' as const, content: mimiResponse },
+      ];
+      const mia2Placeholder: Message = { role: 'assistant', character: 'mia', content: '' };
+      setMessages([...afterMimi, mia2Placeholder]);
+
+      try {
+        const mia2ApiMessages = buildApiMessages(
+          updatedMessages,
+          'mia',
+          `(Mia said: "${miaResponse}" — then Mimi replied: "${mimiResponse}")`
+        );
+        const mia2Response = await streamResponse(mia2ApiMessages, 'mia', (accumulated) => {
+          setMessages((prev) => {
+            const updated = [...prev];
+            updated[updated.length - 1] = { role: 'assistant', character: 'mia', content: accumulated };
+            return updated;
+          });
+        });
+
+        const now = new Date().toISOString();
+        setMessages((prev) => {
+          const updated = [...prev];
+          updated[updated.length - 1] = { role: 'assistant', character: 'mia', content: mia2Response, created_at: now };
+          return updated;
+        });
+        await saveMessage({ role: 'assistant', content: mia2Response, character: 'mia' });
+      } catch (err) {
+        console.error(err);
+        setMessages((prev) => {
+          const updated = [...prev];
+          updated[updated.length - 1] = {
+            role: 'assistant',
+            character: 'mia',
+            content: "...wait my AI brain glitched for a sec (＞＜) anyway—",
+          };
+          return updated;
+        });
+      }
     }
 
     setIsStreaming(false);
