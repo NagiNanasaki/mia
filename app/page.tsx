@@ -100,6 +100,7 @@ export default function HomePage() {
   const [showVocab, setShowVocab] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>(DEFAULT_SUGGESTIONS);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const [loadingTopics, setLoadingTopics] = useState(false);
   const [username, setUsername] = useState<string | null>(null);
   const [showUsernameModal, setShowUsernameModal] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
@@ -166,6 +167,18 @@ export default function HomePage() {
       .then(r => r.json())
       .then(({ suggestions: s }) => { if (s?.length) setSuggestions(s); })
       .finally(() => setLoadingSuggestions(false));
+  };
+
+  const fetchTopics = (msgs: Message[]) => {
+    setLoadingTopics(true);
+    fetch('/api/topics', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: msgs }),
+    })
+      .then(r => r.json())
+      .then(({ topics }) => { if (topics?.length) setSuggestions(topics); })
+      .finally(() => setLoadingTopics(false));
   };
 
   const saveUsername = (name: string) => {
@@ -416,7 +429,7 @@ export default function HomePage() {
           {/* Suggestion chips */}
           {!isStreaming && (
             <div className="flex items-center gap-2 mb-2 overflow-x-auto pb-1 no-scrollbar">
-              {loadingSuggestions ? (
+              {loadingSuggestions || loadingTopics ? (
                 <div className="flex gap-1 items-center px-1 py-1.5">
                   {[0, 150, 300].map(d => (
                     <span key={d} className="w-1.5 h-1.5 bg-purple-300 rounded-full animate-bounce" style={{ animationDelay: `${d}ms` }} />
@@ -441,6 +454,17 @@ export default function HomePage() {
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                       <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
                     </svg>
+                  </button>
+                  <button
+                    onClick={() => fetchTopics(messages)}
+                    className="flex-shrink-0 text-xs text-indigo-500 dark:text-indigo-300 bg-indigo-50 dark:bg-gray-700 hover:bg-indigo-100 dark:hover:bg-gray-600 border border-indigo-200 dark:border-gray-600 rounded-full px-3 py-1.5 transition-colors flex items-center gap-1"
+                    title="話題を変える"
+                  >
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <path d="M8 12h8M12 8l4 4-4 4"/>
+                      <circle cx="12" cy="12" r="9"/>
+                    </svg>
+                    話題を変える
                   </button>
                 </>
               )}
