@@ -67,11 +67,12 @@ async function streamResponse(
   character: 'mia' | 'mimi',
   onChunk: (accumulated: string) => void,
   username?: string | null,
+  trendingContext?: string | null,
 ): Promise<string> {
   const response = await fetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages: apiMessages, character, username, localTime: new Date().toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false }) }),
+    body: JSON.stringify({ messages: apiMessages, character, username, localTime: new Date().toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false }), trendingContext }),
   });
 
   if (!response.ok) throw new Error(`API error: ${response.status}`);
@@ -104,6 +105,7 @@ export default function HomePage() {
   const [username, setUsername] = useState<string | null>(null);
   const [showUsernameModal, setShowUsernameModal] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
+  const [trendingContext, setTrendingContext] = useState<string | null>(null);
   const sessionIdRef = useRef<string>('');
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -140,6 +142,12 @@ export default function HomePage() {
         setMessages(INITIAL_MESSAGES);
       }
       setIsLoading(false);
+
+      // Fetch today's trending context in background (non-blocking)
+      fetch('/api/trending')
+        .then(r => r.json())
+        .then(({ context }) => { if (context) setTrendingContext(context); })
+        .catch(() => {});
     };
     init();
   }, []);
@@ -252,7 +260,7 @@ export default function HomePage() {
             updated[updated.length - 1] = { role: 'assistant', character: char, content: preview };
             return updated;
           });
-        }, username);
+        }, username, trendingContext);
 
         // Split into parts after streaming completes
         const parts = raw.split(/\[split\]/gi).map(p => p.trim()).filter(Boolean);
