@@ -23,9 +23,9 @@ async function tavilySearch(query: string): Promise<TavilyResult> {
 export async function GET() {
   // Fetch 3 topic areas in parallel
   const [general, tech, entertainment] = await Promise.all([
-    tavilySearch('trending news today 2025'),
-    tavilySearch('science technology AI news this week'),
-    tavilySearch('anime manga music trending 2025'),
+    tavilySearch('trending news today 2025 -politics -election -religion -sports -football -soccer -basketball'),
+    tavilySearch('science technology AI space nature news this week'),
+    tavilySearch('anime manga music games movies trending 2025'),
   ]);
 
   const summarize = (data: TavilyResult) =>
