@@ -71,7 +71,7 @@ async function streamResponse(
   const response = await fetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages: apiMessages, character, username }),
+    body: JSON.stringify({ messages: apiMessages, character, username, localTime: new Date().toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false }) }),
   });
 
   if (!response.ok) throw new Error(`API error: ${response.status}`);
