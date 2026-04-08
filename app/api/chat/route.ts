@@ -204,7 +204,7 @@ export async function POST(req: Request) {
   // Phase 1: non-streaming call with tool available
   const phase1 = await client.messages.create({
     model: 'claude-haiku-4-5',
-    max_tokens: 150,
+    max_tokens: 400,
     system: systemPrompt,
     messages,
     tools: [webSearchTool],

@@ -384,21 +384,19 @@ export default function HomePage() {
           <button
             onClick={fetchTrending}
             disabled={loadingTrending}
-            className="flex items-center gap-1 text-xs text-gray-400 hover:text-indigo-500 dark:hover:text-indigo-300 transition-colors p-1.5 disabled:opacity-40"
+            className="text-gray-400 hover:text-indigo-500 dark:hover:text-indigo-300 transition-colors p-1.5 disabled:opacity-40"
             title={trendingContext ? 'ニュースを更新' : 'ニュースを取得'}
           >
-            <svg className={`w-3.5 h-3.5 ${loadingTrending ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+            <svg className={`w-4 h-4 ${loadingTrending ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
               <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
             </svg>
-            {trendingContext ? 'ニュース更新' : 'ニュース取得'}
           </button>
           <button
             onClick={() => setShowVocab(true)}
-            className="flex items-center gap-1.5 text-xs text-purple-500 hover:text-purple-700 bg-purple-50 dark:bg-gray-700 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-gray-600 px-3 py-1.5 rounded-full border border-purple-100 dark:border-gray-600 transition-colors"
+            className="text-purple-400 hover:text-purple-600 dark:text-purple-400 dark:hover:text-purple-300 transition-colors p-1.5"
             title="単語帳"
           >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M17 3H7a2 2 0 00-2 2v16l7-3 7 3V5a2 2 0 00-2-2z"/></svg>
-            単語帳
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M17 3H7a2 2 0 00-2 2v16l7-3 7 3V5a2 2 0 00-2-2z"/></svg>
           </button>
         </div>
       </header>
@@ -483,14 +481,13 @@ export default function HomePage() {
                   </button>
                   <button
                     onClick={() => fetchTopics(messages)}
-                    className="flex-shrink-0 text-xs text-indigo-500 dark:text-indigo-300 bg-indigo-50 dark:bg-gray-700 hover:bg-indigo-100 dark:hover:bg-gray-600 border border-indigo-200 dark:border-gray-600 rounded-full px-3 py-1.5 transition-colors flex items-center gap-1"
+                    className="flex-shrink-0 text-gray-400 hover:text-indigo-500 dark:hover:text-indigo-300 transition-colors p-1.5"
                     title="話題を変える"
                   >
-                    <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                       <path d="M8 12h8M12 8l4 4-4 4"/>
                       <circle cx="12" cy="12" r="9"/>
                     </svg>
-                    話題を変える
                   </button>
                 </>
               )}

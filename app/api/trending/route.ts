@@ -1,45 +1,44 @@
-interface TavilyResult {
-  results: { title: string; content: string; url: string }[];
+interface RssItem {
+  title: string;
+  description: string;
 }
 
-async function tavilySearch(query: string): Promise<TavilyResult> {
-  const res = await fetch('https://api.tavily.com/search', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${process.env.TAVILY_API_KEY}`,
-    },
-    body: JSON.stringify({
-      query,
-      search_depth: 'basic',
-      max_results: 3,
-      include_answer: false,
-    }),
+async function fetchYahooRss(url: string): Promise<RssItem[]> {
+  const res = await fetch(url, { cache: 'no-store' });
+  if (!res.ok) return [];
+  const xml = await res.text();
+
+  const items = xml.match(/<item>[\s\S]*?<\/item>/g) ?? [];
+  return items.slice(0, 3).flatMap((item) => {
+    const titleMatch = item.match(/<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/);
+    const descMatch = item.match(/<description>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/description>/);
+    const title = titleMatch?.[1]?.trim() ?? '';
+    const description = descMatch?.[1]?.replace(/<[^>]+>/g, '').trim().slice(0, 120) ?? '';
+    return title ? [{ title, description }] : [];
   });
-  if (!res.ok) return { results: [] };
-  return res.json();
 }
 
 export async function GET() {
-  // Fetch 3 topic areas in parallel
-  const [general, tech, entertainment] = await Promise.all([
-    tavilySearch('trending news today 2025 -politics -election -religion -sports -football -soccer -basketball'),
-    tavilySearch('science technology AI space nature news this week'),
-    tavilySearch('anime manga music games movies trending 2025'),
+  const [world, tech, entertainment] = await Promise.all([
+    fetchYahooRss('https://news.yahoo.co.jp/rss/topics/world.xml'),
+    fetchYahooRss('https://news.yahoo.co.jp/rss/topics/it.xml'),
+    fetchYahooRss('https://news.yahoo.co.jp/rss/topics/entertainment.xml'),
   ]);
 
-  const summarize = (data: TavilyResult) =>
-    data.results
+  const summarize = (items: RssItem[], label: string) => {
+    const lines = items
       .slice(0, 2)
-      .map(r => `- ${r.title}: ${r.content.slice(0, 120).trim()}`)
+      .map((r) => `- ${r.title}${r.description ? ': ' + r.description : ''}`)
       .join('\n');
+    return lines ? `**${label}**\n${lines}` : '';
+  };
 
   const context = [
-    '**World / General**\n' + summarize(general),
-    '**Tech & Science**\n' + summarize(tech),
-    '**Entertainment**\n' + summarize(entertainment),
+    summarize(world, 'World / General'),
+    summarize(tech, 'Tech & Science'),
+    summarize(entertainment, 'Entertainment'),
   ]
-    .filter(s => s.includes('\n-'))
+    .filter(Boolean)
     .join('\n\n');
 
   return Response.json({ context });
