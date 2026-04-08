@@ -18,11 +18,28 @@ async function fetchYahooRss(url: string): Promise<RssItem[]> {
   });
 }
 
+async function fetchWeather(): Promise<string> {
+  const res = await fetch('https://wttr.in/Tokyo?format=j1', {
+    headers: { 'Accept': 'application/json' },
+    cache: 'no-store',
+  });
+  if (!res.ok) return '';
+  const data = await res.json();
+  const c = data?.current_condition?.[0];
+  if (!c) return '';
+  const desc = c.weatherDesc?.[0]?.value ?? '';
+  const temp = c.temp_C ?? '';
+  const feels = c.FeelsLikeC ?? '';
+  const humidity = c.humidity ?? '';
+  return `**Weather (Tokyo)**\n- ${desc}, ${temp}°C (feels like ${feels}°C), humidity ${humidity}%`;
+}
+
 export async function GET() {
-  const [world, tech, entertainment] = await Promise.all([
+  const [world, tech, entertainment, weather] = await Promise.all([
     fetchYahooRss('https://news.yahoo.co.jp/rss/topics/world.xml'),
     fetchYahooRss('https://news.yahoo.co.jp/rss/topics/it.xml'),
     fetchYahooRss('https://news.yahoo.co.jp/rss/topics/entertainment.xml'),
+    fetchWeather(),
   ]);
 
   const summarize = (items: RssItem[], label: string) => {
@@ -37,6 +54,7 @@ export async function GET() {
     summarize(world, 'World / General'),
     summarize(tech, 'Tech & Science'),
     summarize(entertainment, 'Entertainment'),
+    weather,
   ]
     .filter(Boolean)
     .join('\n\n');
