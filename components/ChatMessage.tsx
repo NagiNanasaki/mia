@@ -273,7 +273,7 @@ export default function ChatMessage({ message, sessionId }: ChatMessageProps & {
             <span className="text-[11px] font-semibold text-gray-500 px-1">{char.name}</span>
           )}
           <div className="flex flex-wrap gap-2">
-            {stamps.map((name, i) => <Stamp key={i} name={name} />)}
+            {stamps.slice(0, 1).map((name, i) => <Stamp key={i} name={name} />)}
           </div>
           {/* Timestamp on stamp row only when no text follows */}
           {!hasText && (
