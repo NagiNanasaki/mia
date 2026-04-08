@@ -106,6 +106,7 @@ export default function HomePage() {
   const [showUsernameModal, setShowUsernameModal] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
   const [trendingContext, setTrendingContext] = useState<string | null>(null);
+  const [loadingTrending, setLoadingTrending] = useState(false);
   const sessionIdRef = useRef<string>('');
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -144,10 +145,7 @@ export default function HomePage() {
       setIsLoading(false);
 
       // Fetch today's trending context in background (non-blocking)
-      fetch('/api/trending')
-        .then(r => r.json())
-        .then(({ context }) => { if (context) setTrendingContext(context); })
-        .catch(() => {});
+      fetchTrending();
     };
     init();
   }, []);
@@ -175,6 +173,15 @@ export default function HomePage() {
       .then(r => r.json())
       .then(({ suggestions: s }) => { if (s?.length) setSuggestions(s); })
       .finally(() => setLoadingSuggestions(false));
+  };
+
+  const fetchTrending = () => {
+    setLoadingTrending(true);
+    fetch('/api/trending')
+      .then(r => r.json())
+      .then(({ context }) => { if (context) setTrendingContext(context); })
+      .catch(() => {})
+      .finally(() => setLoadingTrending(false));
   };
 
   const fetchTopics = (msgs: Message[]) => {
@@ -373,6 +380,17 @@ export default function HomePage() {
             ) : (
               <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
             )}
+          </button>
+          <button
+            onClick={fetchTrending}
+            disabled={loadingTrending}
+            className="flex items-center gap-1 text-xs text-gray-400 hover:text-indigo-500 dark:hover:text-indigo-300 transition-colors p-1.5 disabled:opacity-40"
+            title={trendingContext ? 'ニュースを更新' : 'ニュースを取得'}
+          >
+            <svg className={`w-3.5 h-3.5 ${loadingTrending ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+            </svg>
+            {trendingContext ? 'ニュース更新' : 'ニュース取得'}
           </button>
           <button
             onClick={() => setShowVocab(true)}
