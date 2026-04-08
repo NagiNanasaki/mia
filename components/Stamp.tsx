@@ -1,29 +1,24 @@
 'use client';
 
-const STAMPS: Record<string, { kaomoji: string; label: string; bg: string; border: string }> = {
-  wow:    { kaomoji: '(ﾟДﾟ)',     label: 'WOW',      bg: 'bg-yellow-50',  border: 'border-yellow-300' },
-  lol:    { kaomoji: '(≧▽≦)',     label: 'LOL',       bg: 'bg-pink-50',    border: 'border-pink-300' },
-  cry:    { kaomoji: '(；∀；)',    label: 'CRYING',    bg: 'bg-blue-50',    border: 'border-blue-300' },
-  love:   { kaomoji: '(*´∀｀*)',   label: 'LOVE',      bg: 'bg-red-50',     border: 'border-red-300' },
-  angry:  { kaomoji: '(°Д°)',     label: 'UGH',       bg: 'bg-orange-50',  border: 'border-orange-300' },
-  cool:   { kaomoji: '(｀∀´)',     label: 'GENIUS',    bg: 'bg-purple-50',  border: 'border-purple-300' },
-  no:     { kaomoji: '(╬°Д°)',    label: 'NO WAY',    bg: 'bg-red-50',     border: 'border-red-400' },
-  yes:    { kaomoji: '(^▽^)',     label: 'YES!!',     bg: 'bg-green-50',   border: 'border-green-300' },
-  think:  { kaomoji: '(´・ω・｀)', label: 'HMMMM',     bg: 'bg-gray-50',    border: 'border-gray-300' },
-  dead:   { kaomoji: '(+_+)',     label: 'DEAD',      bg: 'bg-slate-50',   border: 'border-slate-300' },
-  fire:   { kaomoji: '(ﾉ´ヮ)ﾉ',  label: 'HYPE!!',    bg: 'bg-amber-50',   border: 'border-amber-300' },
-  shock:  { kaomoji: '(°o°)',     label: 'SHOCKED',   bg: 'bg-cyan-50',    border: 'border-cyan-300' },
+const STAMPS: Record<string, { emoji: string; label: string; bg: string; border: string; text: string }> = {
+  wow:    { emoji: '🤩', label: 'WOW',     bg: '#fefce8', border: '#fde047', text: '#92400e' },
+  lol:    { emoji: '😂', label: 'LOL',     bg: '#fdf2f8', border: '#f9a8d4', text: '#9d174d' },
+  cry:    { emoji: '😭', label: 'CRYING',  bg: '#eff6ff', border: '#93c5fd', text: '#1e40af' },
+  love:   { emoji: '🥰', label: 'LOVE',    bg: '#fff1f2', border: '#fca5a5', text: '#9f1239' },
+  angry:  { emoji: '😤', label: 'UGH',     bg: '#fff7ed', border: '#fdba74', text: '#9a3412' },
+  cool:   { emoji: '😎', label: 'GENIUS',  bg: '#faf5ff', border: '#c4b5fd', text: '#6b21a8' },
+  no:     { emoji: '🙅', label: 'NO WAY',  bg: '#fff1f2', border: '#f87171', text: '#991b1b' },
+  yes:    { emoji: '🙆', label: 'YES!!',   bg: '#f0fdf4', border: '#86efac', text: '#166534' },
+  think:  { emoji: '🤔', label: 'HMMMM',   bg: '#f9fafb', border: '#d1d5db', text: '#374151' },
+  dead:   { emoji: '💀', label: 'DEAD',    bg: '#f8fafc', border: '#cbd5e1', text: '#334155' },
+  fire:   { emoji: '🔥', label: 'HYPE!!',  bg: '#fffbeb', border: '#fcd34d', text: '#92400e' },
+  shock:  { emoji: '😱', label: 'SHOCKED', bg: '#ecfeff', border: '#67e8f9', text: '#155e75' },
 };
 
 export default function Stamp({ name }: { name: string }) {
   const stamp = STAMPS[name.toLowerCase()] ?? STAMPS['wow'];
   return (
-    <div
-      className={`inline-flex flex-col items-center justify-center w-28 h-28 rounded-2xl border-2 shadow-md select-none ${stamp.bg} ${stamp.border}`}
-    >
-      <span className="text-2xl leading-none mb-1">{stamp.kaomoji}</span>
-      <span className="text-[11px] font-black tracking-widest text-gray-500">{stamp.label}</span>
-    </div>
+    <span className="text-4xl select-none leading-none">{stamp.emoji}</span>
   );
 }
 

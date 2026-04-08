@@ -3,6 +3,7 @@
 import { useState, useRef } from 'react';
 import CatAvatar from './CatAvatar';
 import Stamp from './Stamp';
+import VocabSelectModal, { type VocabCandidate } from './VocabSelectModal';
 
 export interface Message {
   role: 'user' | 'assistant';
@@ -44,18 +45,46 @@ export default function ChatMessage({ message, sessionId }: ChatMessageProps & {
   const [isPlaying, setIsPlaying] = useState(false);
   const [translation, setTranslation] = useState<string | null>(null);
   const [isTranslating, setIsTranslating] = useState(false);
-  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'none'>('idle');
+  const [saveState, setSaveState] = useState<'idle' | 'extracting' | 'selecting' | 'saving' | 'saved' | 'none'>('idle');
+  const [vocabCandidates, setVocabCandidates] = useState<VocabCandidate[]>([]);
 
   const handleSave = async () => {
     if (!sessionId || saveState !== 'idle') return;
+    setSaveState('extracting');
+    try {
+      const res = await fetch('/api/vocab-save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: displayText.trim() }),
+      });
+      const { items } = await res.json();
+      if (!items || items.length === 0) {
+        setSaveState('none');
+        setTimeout(() => setSaveState('idle'), 2500);
+        return;
+      }
+      setVocabCandidates(items);
+      setSaveState('selecting');
+    } catch {
+      setSaveState('idle');
+    }
+  };
+
+  const handleVocabSave = async (selected: VocabCandidate[]) => {
     setSaveState('saving');
-    const res = await fetch('/api/vocab-save', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: displayText.trim(), sessionId }),
-    });
-    const { saved } = await res.json();
-    setSaveState(saved > 0 ? 'saved' : 'none');
+    setVocabCandidates([]);
+    if (selected.length === 0) { setSaveState('idle'); return; }
+    try {
+      await fetch('/api/vocab-save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: selected, sessionId }),
+      });
+      setSaveState('saved');
+    } catch {
+      setSaveState('idle');
+      return;
+    }
     setTimeout(() => setSaveState('idle'), 2500);
   };
 
@@ -81,6 +110,18 @@ export default function ChatMessage({ message, sessionId }: ChatMessageProps & {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
+  // iOS requires audio.play() to be called synchronously within a user gesture.
+  // After await fetch(), the gesture context is lost and play() gets blocked.
+  // Fix: create the Audio element and call play() immediately (sync) to unlock it,
+  // then swap in the real src after fetch completes.
+  const isIOS =
+    typeof navigator !== 'undefined' &&
+    (/iPad|iPhone|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
+
+  // Minimal silent WAV — used to unlock iOS audio in the gesture context
+  const SILENT_WAV = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+
   const toggleAudio = async () => {
     if (activeRef.current) {
       activeRef.current = false;
@@ -96,6 +137,14 @@ export default function ChatMessage({ message, sessionId }: ChatMessageProps & {
     const controller = new AbortController();
     abortRef.current = controller;
 
+    // iOS: unlock audio synchronously before any await
+    let audio: HTMLAudioElement | null = null;
+    if (isIOS) {
+      audio = new Audio(SILENT_WAV);
+      audioRef.current = audio;
+      audio.play().catch(() => {});
+    }
+
     try {
       const res = await fetch('/api/tts', {
         method: 'POST',
@@ -103,23 +152,24 @@ export default function ChatMessage({ message, sessionId }: ChatMessageProps & {
         body: JSON.stringify({ text: message.content, voiceId: char?.voiceId }),
         signal: controller.signal,
       });
-      if (!res.ok || !res.body || !activeRef.current) throw new Error('TTS failed');
+      if (!res.ok || !activeRef.current) throw new Error('TTS failed');
 
       const supportsMediaSource =
+        !isIOS &&
         typeof MediaSource !== 'undefined' &&
         MediaSource.isTypeSupported('audio/mpeg');
 
       if (supportsMediaSource) {
+        if (!res.body) throw new Error('No body');
         const mediaSource = new MediaSource();
         const url = URL.createObjectURL(mediaSource);
-        const audio = new Audio(url);
-        audioRef.current = audio;
-        audio.onended = () => {
+        const msAudio = new Audio(url);
+        audioRef.current = msAudio;
+        msAudio.onended = () => {
           activeRef.current = false;
           setIsPlaying(false);
           URL.revokeObjectURL(url);
         };
-
         mediaSource.addEventListener('sourceopen', () => {
           const sb = mediaSource.addSourceBuffer('audio/mpeg');
           const reader = res.body!.getReader();
@@ -133,20 +183,34 @@ export default function ChatMessage({ message, sessionId }: ChatMessageProps & {
           sb.addEventListener('updateend', pump);
           pump();
         });
-
-        audio.play();
+        msAudio.play();
       } else {
+        // Blob path (always used on iOS)
         const blob = await res.blob();
         if (!activeRef.current) return;
         const url = URL.createObjectURL(blob);
-        const audio = new Audio(url);
-        audioRef.current = audio;
-        audio.onended = () => {
-          activeRef.current = false;
-          setIsPlaying(false);
-          URL.revokeObjectURL(url);
-        };
-        audio.play();
+
+        if (isIOS && audio) {
+          // Reuse the already-unlocked audio element
+          audio.pause();
+          audio.src = url;
+          audio.load();
+          audio.onended = () => {
+            activeRef.current = false;
+            setIsPlaying(false);
+            URL.revokeObjectURL(url);
+          };
+          await audio.play();
+        } else {
+          const blobAudio = new Audio(url);
+          audioRef.current = blobAudio;
+          blobAudio.onended = () => {
+            activeRef.current = false;
+            setIsPlaying(false);
+            URL.revokeObjectURL(url);
+          };
+          blobAudio.play();
+        }
       }
     } catch {
       activeRef.current = false;
@@ -156,7 +220,7 @@ export default function ChatMessage({ message, sessionId }: ChatMessageProps & {
 
   // Parse [img:url] and [stamp:name] markers out of content
   const imgRegex = /\[img:(https?:\/\/[^\]]+)\]/g;
-  const stampRegex = /\[stamp:([a-z]+)\]/gi;
+  const stampRegex = /\[stamp:\s*([a-zA-Z]+)\s*\]/g;
   const images: string[] = [];
   const stamps: string[] = [];
   const displayText = message.content
@@ -164,7 +228,17 @@ export default function ChatMessage({ message, sessionId }: ChatMessageProps & {
     .replace(stampRegex, (_, name: string) => { stamps.push(name.toLowerCase()); return ''; })
     .trimStart();
 
+  if (stamps.length > 0) console.log('[Stamp] detected:', stamps, '| raw:', message.content.slice(0, 100));
+
   return (
+    <>
+    {saveState === 'selecting' && (
+      <VocabSelectModal
+        items={vocabCandidates}
+        onSave={handleVocabSave}
+        onClose={() => setSaveState('idle')}
+      />
+    )}
     <div className={`flex items-end gap-2 mb-4 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
       {/* Avatar */}
       {!isUser && char && (
@@ -180,18 +254,20 @@ export default function ChatMessage({ message, sessionId }: ChatMessageProps & {
           <span className="text-[11px] font-semibold text-gray-500 px-1">{char.name}</span>
         )}
 
-        <div
+        {/* Stamps outside bubble, LINE-sticker style */}
+        {stamps.length > 0 && (
+          <div className="flex flex-wrap gap-2 my-1">
+            {stamps.map((name, i) => <Stamp key={i} name={name} />)}
+          </div>
+        )}
+
+        {(displayText.trim() || images.length > 0) && <div
           className={`px-4 py-3 rounded-2xl shadow-sm text-sm leading-relaxed ${
             isUser
               ? 'bg-indigo-600 text-white rounded-br-sm'
               : `${char?.bubbleBg} rounded-bl-sm border dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100`
           }`}
         >
-          {stamps.length > 0 && (
-            <div className="flex flex-wrap gap-2 mb-2">
-              {stamps.map((name, i) => <Stamp key={i} name={name} />)}
-            </div>
-          )}
           {images.length > 0 && (
             <div className="flex flex-wrap gap-2 mb-2">
               {images.map((url, i) => (
@@ -207,7 +283,7 @@ export default function ChatMessage({ message, sessionId }: ChatMessageProps & {
             </div>
           )}
           <p className="whitespace-pre-wrap break-words">{displayText}</p>
-        </div>
+        </div>}
 
         {/* Translation hint */}
         {!isUser && translation !== null && (
@@ -247,9 +323,9 @@ export default function ChatMessage({ message, sessionId }: ChatMessageProps & {
                 onClick={handleSave}
                 disabled={saveState !== 'idle'}
                 className={`transition-colors ${saveState === 'saved' ? 'text-green-400' : saveState === 'none' ? 'text-gray-300' : 'text-gray-400 hover:text-purple-500'}`}
-                title={saveState === 'saved' ? '保存しました' : saveState === 'none' ? '該当なし' : '単語帳に一括保存'}
+                title={saveState === 'saved' ? '保存しました' : saveState === 'none' ? '該当なし' : '単語を選んで保存'}
               >
-                {saveState === 'saving' ? (
+                {(saveState === 'extracting' || saveState === 'saving') ? (
                   <svg className="w-3.5 h-3.5 animate-spin" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
                 ) : saveState === 'saved' ? (
                   <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M17 3H7a2 2 0 00-2 2v16l7-3 7 3V5a2 2 0 00-2-2z"/></svg>
@@ -270,5 +346,6 @@ export default function ChatMessage({ message, sessionId }: ChatMessageProps & {
         </div>
       )}
     </div>
+    </>
   );
 }

@@ -8,11 +8,36 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
+// POST { message } → { items } (extract only, no save)
+// POST { items, sessionId } → { saved } (save selected items)
 export async function POST(req: Request) {
-  const { message, sessionId } = await req.json();
-  if (!message || !sessionId) {
-    return Response.json({ error: 'Missing fields' }, { status: 400 });
+  const body = await req.json();
+
+  // Save mode: items + sessionId provided
+  if (body.items && body.sessionId) {
+    const { items, sessionId } = body as {
+      items: { phrase: string; translation: string }[];
+      sessionId: string;
+    };
+    if (!items.length) return Response.json({ saved: 0 });
+
+    const { error } = await supabase.from('vocabulary').insert(
+      items.map(item => ({
+        session_id: sessionId,
+        phrase: item.phrase,
+        translation: item.translation,
+      }))
+    );
+    if (error) {
+      console.error('Supabase insert error:', error);
+      return Response.json({ error: error.message }, { status: 500 });
+    }
+    return Response.json({ saved: items.length });
   }
+
+  // Extract mode: message provided
+  const { message } = body as { message: string };
+  if (!message) return Response.json({ error: 'Missing message' }, { status: 400 });
 
   const msg = await client.messages.create({
     model: 'claude-haiku-4-5',
@@ -41,18 +66,8 @@ export async function POST(req: Request) {
     const match = raw.match(/\[[\s\S]*\]/);
     items = match ? JSON.parse(match[0]) : [];
   } catch {
-    return Response.json({ saved: 0 });
+    return Response.json({ items: [] });
   }
 
-  if (items.length === 0) return Response.json({ saved: 0 });
-
-  await supabase.from('vocabulary').insert(
-    items.map(item => ({
-      session_id: sessionId,
-      phrase: item.phrase,
-      translation: item.translation,
-    }))
-  );
-
-  return Response.json({ saved: items.length });
+  return Response.json({ items });
 }

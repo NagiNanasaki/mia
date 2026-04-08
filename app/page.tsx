@@ -207,11 +207,21 @@ export default function HomePage() {
       mimi: "omg something broke lol (｡>﹏<｡) sorry!! try again??",
     };
 
+    // Track all AI responses in this round for context
+    const roundResponses: { char: 'mia' | 'mimi'; content: string }[] = [];
+
+    const buildContextNote = (forChar: 'mia' | 'mimi') => {
+      if (roundResponses.length === 0) return undefined;
+      const lines = roundResponses
+        .map(r => `${r.char === 'mia' ? 'Mia' : 'Mimi'}: "${r.content}"`)
+        .join('\n');
+      return `(Group chat so far this turn:\n${lines}\n\nNow it's your turn — don't repeat what was already said, build on it.)`;
+    };
+
     // Helper: stream one character's response and persist it (handles [split])
     const runCharacter = async (
       char: 'mia' | 'mimi',
       currentMessages: Message[],
-      contextNote?: string,
     ): Promise<{ response: string; history: Message[] }> => {
       setStreamingCharacter(char);
       const placeholder: Message = { role: 'assistant', character: char, content: '' };
@@ -219,6 +229,7 @@ export default function HomePage() {
 
       let raw = '';
       try {
+        const contextNote = buildContextNote(char);
         const apiMessages = buildApiMessages(updatedMessages, char, contextNote);
         raw = await streamResponse(apiMessages, char, (accumulated) => {
           // During streaming, show without [split] markers
@@ -268,6 +279,7 @@ export default function HomePage() {
         });
       }
 
+      roundResponses.push({ char, content: raw });
       const history: Message[] = [...currentMessages, { role: 'assistant', character: char, content: raw }];
       return { response: raw, history };
     };
@@ -276,34 +288,22 @@ export default function HomePage() {
     const first: 'mia' | 'mimi' = Math.random() < 0.5 ? 'mia' : 'mimi';
     const second: 'mia' | 'mimi' = first === 'mia' ? 'mimi' : 'mia';
 
-    // First character responds (no context)
-    const { response: firstResponse, history: afterFirst } = await runCharacter(first, updatedMessages);
+    // First character responds (no context yet)
+    const { history: afterFirst } = await runCharacter(first, updatedMessages);
 
-    // Second character responds (with first's context)
-    const name = (c: 'mia' | 'mimi') => c === 'mia' ? 'Mia' : 'Mimi';
-    const { response: secondResponse, history: afterSecond } = await runCharacter(
-      second,
-      afterFirst,
-      `(${name(first)} just said: "${firstResponse}")`
-    );
+    // Second character responds (sees first's response via roundResponses)
+    const { history: afterSecond } = await runCharacter(second, afterFirst);
 
     // Relay loop: alternates between characters, max 6 total turns, 50% chance each extra turn
     const MAX_TURNS = 6;
     let currentChar = first;
-    let prevChar = second;
-    let prevResponse = secondResponse;
     let currentHistory = afterSecond;
     let turn = 2; // already did 2 turns
 
     while (turn < MAX_TURNS && Math.random() < 0.5) {
-      const { response, history } = await runCharacter(
-        currentChar,
-        currentHistory,
-        `(${name(prevChar)} just said: "${prevResponse}")`
-      );
-      prevResponse = response;
+      const { history } = await runCharacter(currentChar, currentHistory);
       currentHistory = history;
-      [currentChar, prevChar] = [prevChar, currentChar];
+      currentChar = currentChar === 'mia' ? 'mimi' : 'mia';
       turn++;
     }
 
