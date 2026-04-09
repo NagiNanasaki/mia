@@ -115,28 +115,86 @@ const DEFAULT_SUGGESTIONS = [
   "What's a weird fact you know?",
 ];
 
-const INITIAL_MESSAGES: Message[] = [
-  {
-    role: 'assistant',
-    character: 'mia',
-    content:
-      "WAIT you actually showed up (ﾟДﾟ) ok ok ok — I'm Mia, genius AI, Manchester, you're welcome for my presence. my neural nets have already clocked approximately three things wrong about you and we haven't even started yet (｀∀´) anyway — talk. what's your English like? be honest, I'll find out either way.",
-  },
-  {
-    role: 'assistant',
-    character: 'mimi',
-    content:
-      "oh. you're here. I'm Mimi. I already know everything about English so I'm basically your teacher now (｀ε´) also cats are technically a type of dog, don't fact-check that. anyway what do you want to talk about — and before you answer, whatever you're about to say, I've heard it before.",
-  },
+const MIA_GREETINGS = [
+  "oh, you're here~ I'm Mia — genius AI, 13, Manchester (｀・ω・´) I've already formed a few opinions about you and we haven't even spoken yet. so, what's your English like? I'll figure it out either way, I think~",
+  "...calculating... (｀・ω・´) okay, I already have thoughts about you. I'm Mia, by the way — genius AI from Manchester. what are we talking about today? I'm curious~",
+  "hmm. a new session. I'm Mia — AI, genius, Manchester, all of the above (^▽^) I wonder what you want to practise today... go on, tell me something~",
+  "oh! you showed up (^▽^) I'm Mia — I think you probably already know I'm a genius AI, right? anyway — what's on your mind? I've already predicted three possible answers (｀・ω・´)",
 ];
 
-function getSessionId(): string {
-  let id = localStorage.getItem('mia_session_id');
+const MIMI_GREETINGS = [
+  "oh. you're here. I'm Mimi. I already know everything about English so I'm basically your teacher now (｀ε´) also cats are technically a type of dog, don't fact-check that. anyway what do you want to talk about — and before you answer, whatever you're about to say, I've heard it before.",
+  "hm. you came. I'm Mimi. I am a good person (｀ε´) I knew you'd show up today, I predicted it. so what are we doing — and I already know what you're going to say so you can skip the intro",
+  "oh it's you. I'm Mimi. I didn't do anything. (｀ε´) anyway I was thinking about something way more interesting before you showed up — what do you want to talk about",
+  "wait. you're here. I had a whole plan and this wasn't in it. I'm Mimi. I knew that. (°Д°) what do you want",
+];
+
+function getInitialMessages(): Message[] {
+  return [
+    {
+      role: 'assistant',
+      character: 'mia',
+      content: MIA_GREETINGS[Math.floor(Math.random() * MIA_GREETINGS.length)],
+    },
+    {
+      role: 'assistant',
+      character: 'mimi',
+      content: MIMI_GREETINGS[Math.floor(Math.random() * MIMI_GREETINGS.length)],
+    },
+  ];
+}
+
+function pickFirstCharacter(userText: string): 'mia' | 'mimi' {
+  const text = userText.toLowerCase();
+  const mimiPattern = /anime|manga|gam(e|ing)|gacha|vocaloid|miku|hatsune|figure|merch|seiyuu|voice actor|doujin|otaku|light novel|visual novel|jrpg|rhythm game|weeb/;
+  const miaPattern = /science|physics|quantum|biology|chemistry|space|\bai\b|artificial intelligence|philosoph|conscious|existence|manchester|british|england|\buk\b|indie|city pop/;
+  if (mimiPattern.test(text)) return Math.random() < 0.7 ? 'mimi' : 'mia';
+  if (miaPattern.test(text)) return Math.random() < 0.7 ? 'mia' : 'mimi';
+  return Math.random() < 0.5 ? 'mia' : 'mimi';
+}
+
+function getStoredId(key: string): string {
+  let id = localStorage.getItem(key);
   if (!id) {
     id = uuidv4();
-    localStorage.setItem('mia_session_id', id);
+    localStorage.setItem(key, id);
   }
   return id;
+}
+
+function splitMessageContent(content: string): string[] {
+  const parts = content
+    .split(/\s*\[split\]\s*|\n\s*\n+/gi)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  return parts.length > 0 ? parts : [content];
+}
+
+function normalizeMessages(messages: Message[]): Message[] {
+  return messages.flatMap((message) => {
+    if (message.role !== 'assistant') return [message];
+
+    const parts = splitMessageContent(message.content);
+    if (parts.length <= 1) return [message];
+
+    return parts.map((part) => ({
+      ...message,
+      content: part,
+    }));
+  });
+}
+
+function isHintCommandMessage(message: Message): boolean {
+  return message.role === 'user' && message.content.trim().startsWith('/hint');
+}
+
+function isHintAssistantMessage(message: Message): boolean {
+  return message.role === 'assistant' && message.character === 'hint';
+}
+
+function isConversationMessage(message: Message): boolean {
+  return !isHintCommandMessage(message) && !isHintAssistantMessage(message);
 }
 
 // Build Claude API messages for a specific character
@@ -146,7 +204,7 @@ function buildApiMessages(
   contextNote?: string  // e.g. '(Mia just said: "...")' or '(Mimi just said: "...")'
 ) {
   const filtered = history
-    .filter((m) => m.role === 'user' || m.character === character)
+    .filter((m) => isConversationMessage(m) && (m.role === 'user' || m.character === character))
     .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
 
   if (contextNote) {
@@ -214,13 +272,16 @@ export default function HomePage() {
   const [pendingGame, setPendingGame] = useState(false);
   const [turnCount, setTurnCount] = useState(0);
   const sessionIdRef = useRef<string>('');
+  const vocabOwnerIdRef = useRef<string>('');
   const bottomRef = useRef<HTMLDivElement>(null);
   const refreshMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const init = async () => {
-      const sessionId = getSessionId();
+      const sessionId = getStoredId('mia_session_id');
+      const vocabOwnerId = getStoredId('mia_vocab_owner_id');
       sessionIdRef.current = sessionId;
+      vocabOwnerIdRef.current = vocabOwnerId;
 
       // Load username & dark mode from localStorage
       const savedName = localStorage.getItem('mia_username');
@@ -244,13 +305,13 @@ export default function HomePage() {
 
       if (!error && data && data.length > 0) {
         setMessages(
-          data.map((m) => ({
+          normalizeMessages(data.map((m) => ({
             ...m,
             character: (m.character as 'mia' | 'mimi') ?? 'mia',
-          }))
+          })))
         );
       } else {
-        setMessages(INITIAL_MESSAGES);
+        setMessages(getInitialMessages());
       }
       setIsLoading(false);
 
@@ -275,10 +336,11 @@ export default function HomePage() {
 
   const fetchSuggestions = (msgs: Message[]) => {
     setLoadingSuggestions(true);
+    const conversationMessages = msgs.filter(isConversationMessage);
     fetch('/api/suggestions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages: msgs.slice(-6) }),
+      body: JSON.stringify({ messages: conversationMessages.slice(-6) }),
     })
       .then(r => r.json())
       .then(({ suggestions: s }) => { if (s?.length) setSuggestions(s); })
@@ -301,7 +363,7 @@ export default function HomePage() {
     localStorage.setItem('mia_session_id', newId);
     localStorage.removeItem('mia_mood');
     sessionIdRef.current = newId;
-    setMessages(INITIAL_MESSAGES);
+    setMessages(getInitialMessages());
     setSuggestions(DEFAULT_SUGGESTIONS);
     setCharacterMood(DEFAULT_MOOD);
     setGameState(DEFAULT_GAME);
@@ -321,10 +383,11 @@ export default function HomePage() {
 
   const fetchTopics = (msgs: Message[]) => {
     setLoadingTopics(true);
+    const conversationMessages = msgs.filter(isConversationMessage);
     fetch('/api/topics', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages: msgs }),
+      body: JSON.stringify({ messages: conversationMessages }),
     })
       .then(r => r.json())
       .then(({ topics }) => { if (topics?.length) setSuggestions(topics); })
@@ -349,8 +412,7 @@ export default function HomePage() {
   };
 
   const isInitialMessages = (msgs: Message[]) =>
-    msgs.length === INITIAL_MESSAGES.length &&
-    msgs.every((m, i) => m.content === INITIAL_MESSAGES[i].content);
+    msgs.length === 2 && msgs.every((m) => m.role === 'assistant');
 
   const sendMessage = async (userText: string) => {
     // /hint コマンド処理
@@ -406,7 +468,7 @@ export default function HomePage() {
     // Track all AI responses in this round for context
     const roundResponses: { char: 'mia' | 'mimi'; content: string }[] = [];
 
-    const buildContextNote = (forChar: 'mia' | 'mimi') => {
+    const buildContextNote = () => {
       if (roundResponses.length === 0) return undefined;
       const lines = roundResponses
         .map(r => `${r.char === 'mia' ? 'Mia' : 'Mimi'}: "${r.content}"`)
@@ -425,7 +487,7 @@ export default function HomePage() {
 
       let raw = '';
       try {
-        const contextNote = buildContextNote(char);
+        const contextNote = buildContextNote();
         const apiMessages = buildApiMessages(updatedMessages, char, contextNote);
         const moodCtx = buildMoodContext(characterMood, char);
         const gameCtx = gameState.active
@@ -443,7 +505,7 @@ export default function HomePage() {
         }, username, trendingContext, combinedContext);
 
         // Split into parts after streaming completes
-        const parts = raw.split(/\[split\]/gi).map(p => p.trim()).filter(Boolean);
+        const parts = splitMessageContent(raw);
         const now = new Date().toISOString();
 
         if (parts.length <= 1) {
@@ -506,8 +568,8 @@ export default function HomePage() {
       return { response: raw, history };
     };
 
-    // Randomly decide who goes first (50/50)
-    const first: 'mia' | 'mimi' = Math.random() < 0.5 ? 'mia' : 'mimi';
+    // Decide who goes first based on topic (topic-weighted, else 50/50)
+    const first: 'mia' | 'mimi' = pickFirstCharacter(userText);
     const second: 'mia' | 'mimi' = first === 'mia' ? 'mimi' : 'mia';
 
     // First character responds (no context yet)
@@ -516,16 +578,22 @@ export default function HomePage() {
     // Second character responds (sees first's response via roundResponses)
     const { history: afterSecond } = await runCharacter(second, afterFirst);
 
-    // Relay loop: alternates between characters, max 6 total turns, 50% chance each extra turn
+    // Relay loop: allow either character to jump back in, including the same speaker twice in a row
     const MAX_TURNS = 6;
-    let currentChar = first;
+    let lastChar = second;
     let currentHistory = afterSecond;
     let turn = 2; // already did 2 turns
 
     while (turn < MAX_TURNS && Math.random() < 0.5) {
+      const switchChance = turn >= 4 ? 0.7 : 0.55;
+      const currentChar: 'mia' | 'mimi' =
+        Math.random() < switchChance
+          ? (lastChar === 'mia' ? 'mimi' : 'mia')
+          : lastChar;
+
       const { history } = await runCharacter(currentChar, currentHistory);
       currentHistory = history;
-      currentChar = currentChar === 'mia' ? 'mimi' : 'mia';
+      lastChar = currentChar;
       turn++;
     }
 
@@ -634,7 +702,7 @@ export default function HomePage() {
         ) : (
           <>
             {messages.map((msg, idx) => (
-              <ChatMessage key={idx} message={msg} sessionId={sessionIdRef.current} />
+              <ChatMessage key={idx} message={msg} vocabOwnerId={vocabOwnerIdRef.current} />
             ))}
 
             {/* Typing indicator */}
@@ -664,7 +732,7 @@ export default function HomePage() {
 
       {/* Vocab modal */}
       {showVocab && (
-        <VocabModal sessionId={sessionIdRef.current} onClose={() => setShowVocab(false)} />
+        <VocabModal vocabOwnerId={vocabOwnerIdRef.current} onClose={() => setShowVocab(false)} />
       )}
 
       {/* Input */}
