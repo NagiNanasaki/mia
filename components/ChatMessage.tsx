@@ -8,7 +8,7 @@ import VocabSelectModal, { type VocabCandidate } from './VocabSelectModal';
 export interface Message {
   role: 'user' | 'assistant';
   content: string;
-  character?: 'mia' | 'mimi';
+  character?: 'mia' | 'mimi' | 'hint';
   created_at?: string;
 }
 
@@ -30,6 +30,13 @@ const CHARACTERS = {
     avatarBg: 'from-orange-400 to-pink-500',
     bubbleBg: 'bg-orange-100 border-orange-200 text-gray-800',
     name: 'Mimi',
+  },
+  hint: {
+    voiceId: '',
+    avatar: '💡',
+    avatarBg: 'from-teal-400 to-green-400',
+    bubbleBg: 'bg-teal-50 border-teal-200 text-gray-800',
+    name: 'hint君',
   },
 };
 
@@ -241,10 +248,18 @@ export default function ChatMessage({ message, sessionId }: ChatMessageProps & {
   const hasText = !!(displayText.trim() || images.length > 0);
   const hasStamps = stamps.length > 0;
 
+  const isHint = message.character === 'hint';
+
   const avatar = !isUser && char ? (
-    <div className="flex-shrink-0 w-10 h-10 rounded-full overflow-hidden shadow-md">
-      <CatAvatar variant={message.character ?? 'mia'} size={40} />
-    </div>
+    isHint ? (
+      <div className="flex-shrink-0 w-10 h-10 rounded-full bg-gradient-to-br from-teal-400 to-green-400 flex items-center justify-center shadow-md text-xl">
+        💡
+      </div>
+    ) : (
+      <div className="flex-shrink-0 w-10 h-10 rounded-full overflow-hidden shadow-md">
+        <CatAvatar variant={message.character as 'mia' | 'mimi'} size={40} />
+      </div>
+    )
   ) : null;
 
   const userAvatar = isUser ? (
@@ -328,7 +343,7 @@ export default function ChatMessage({ message, sessionId }: ChatMessageProps & {
           {/* Timestamp + buttons row */}
           <div className={`flex items-center gap-2 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
             <span className="text-[10px] text-gray-400">{formatTime(message.created_at)}</span>
-            {!isUser && (
+            {!isUser && !isHint && (
               <>
                 <button
                   onClick={toggleAudio}

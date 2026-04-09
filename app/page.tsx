@@ -240,6 +240,38 @@ export default function HomePage() {
     msgs.every((m, i) => m.content === INITIAL_MESSAGES[i].content);
 
   const sendMessage = async (userText: string) => {
+    // /hint コマンド処理
+    if (userText.trim().startsWith('/hint')) {
+      const japanese = userText.replace(/^\/hint\s*/i, '').trim();
+      if (!japanese) return;
+      const userMessage: Message = { role: 'user', content: userText, created_at: new Date().toISOString() };
+      const placeholder: Message = { role: 'assistant', character: 'hint', content: '考え中...', created_at: new Date().toISOString() };
+      setMessages(prev => [...prev, userMessage, placeholder]);
+      setIsStreaming(true);
+      try {
+        const res = await fetch('/api/hint', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: japanese }),
+        });
+        const { hint } = await res.json();
+        setMessages(prev => {
+          const updated = [...prev];
+          updated[updated.length - 1] = { role: 'assistant', character: 'hint', content: hint, created_at: new Date().toISOString() };
+          return updated;
+        });
+      } catch {
+        setMessages(prev => {
+          const updated = [...prev];
+          updated[updated.length - 1] = { role: 'assistant', character: 'hint', content: 'ヒントを取得できませんでした。もう一度試してください。', created_at: new Date().toISOString() };
+          return updated;
+        });
+      } finally {
+        setIsStreaming(false);
+      }
+      return;
+    }
+
     const userMessage: Message = {
       role: 'user',
       content: userText,
