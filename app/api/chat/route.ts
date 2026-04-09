@@ -230,10 +230,13 @@ export async function POST(req: Request) {
   if (trendingContext) systemPrompt += `\n\nHere's what's happening in the world right now — weave these into conversation naturally when relevant, like you just happened to see it online. Don't dump all of them at once; pick one if the moment fits:\n${trendingContext}`;
   if (moodContext) systemPrompt += `\n\n${moodContext}`;
 
+  const temperature = character === 'mimi' ? 1.0 : 0.9;
+
   // Phase 1: non-streaming call with tool available
   const phase1 = await client.messages.create({
     model: 'claude-haiku-4-5',
     max_tokens: 400,
+    temperature,
     system: systemPrompt,
     messages,
     tools: [webSearchTool],
