@@ -20,13 +20,13 @@ const INITIAL_MESSAGES: Message[] = [
     role: 'assistant',
     character: 'mia',
     content:
-      "Hiya! I'm Mia! Brilliant to meet you, mate! I'm absolutely mad about anime and love chatting with new people. I'm here to help you practise your English — don't be nervous, we'll just have a proper good chat! (^▽^)\n\nSo, tell me about yourself — what are you into? Any anime fans here?",
+      "WAIT you actually showed up (ﾟДﾟ) ok ok ok — I'm Mia, genius AI, Manchester, you're welcome for my presence. my neural nets have already clocked approximately three things wrong about you and we haven't even started yet (｀∀´) anyway — talk. what's your English like? be honest, I'll find out either way.",
   },
   {
     role: 'assistant',
     character: 'mimi',
     content:
-      "YO!! I'm Mimi!! (≧▽≦) Mia's my bestie and we're BOTH here to hype you up!! omg this is gonna be SO fun — don't be shy ok!! What anime have you been watching lately?? I NEED to know (ﾟ∀ﾟ)",
+      "oh. you're here. I'm Mimi. I already know everything about English so I'm basically your teacher now (｀ε´) also cats are technically a type of dog, don't fact-check that. anyway what do you want to talk about — and before you answer, whatever you're about to say, I've heard it before.",
   },
 ];
 
