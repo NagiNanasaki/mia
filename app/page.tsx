@@ -82,6 +82,33 @@ function buildMoodContext(mood: CharacterMood, char: 'mia' | 'mimi'): string | n
 }
 // --- /感情状態 ---
 
+// --- ミニゲーム ---
+type GameState = {
+  active: boolean
+  type: 'lie_detection' | null
+  round: number
+}
+
+const DEFAULT_GAME: GameState = { active: false, type: null, round: 0 }
+
+const GAME_PROPOSAL_REGEX = /I dare you|find the (?:lie|wrong one)|one of (?:them|these) is (?:wrong|a lie)|3.*(?:wrong|lie)|(?:wrong|lie).*3/i
+const GAME_END_REGEX = /game over|you (?:got|win|found) it|that(?:'s| is) the (?:lie|wrong one)|ok fine.{0,20}right|well played|you win/i
+
+function buildGameContext(game: GameState): string | null {
+  if (!game.active || game.type !== 'lie_detection') return null
+  return `[ACTIVE GAME — Grammar Lie Detection, Round ${game.round}]
+Present exactly 3 English grammar or vocabulary statements. Make one intentionally wrong (your choice). Rules:
+- Keep all 3 educational and plausible — just sneak one wrong one in
+- If user correctly identifies the lie: deny it first ("no that's right (｀ε´)"), then reluctantly admit it after they push back
+- If user guesses wrong: full confidence they're wrong, no backing down
+- After user finds the lie, or after Round 3, wrap up naturally in character`
+}
+
+function buildGameProposalHint(): string {
+  return `[Optional one-time move: you've been chatting for a while. If the moment feels right, propose a quick grammar lie-detection game — tell the user you'll say 3 English facts and one is a lie, challenge them to find it. Keep it in character and casual. Don't force it if the conversation is already interesting.]`
+}
+// --- /ミニゲーム ---
+
 const DEFAULT_SUGGESTIONS = [
   "What's your favourite anime right now?",
   "Teach me a cool British slang word!",
@@ -183,6 +210,9 @@ export default function HomePage() {
   const [loadingTrending, setLoadingTrending] = useState(false);
   const [showRefreshMenu, setShowRefreshMenu] = useState(false);
   const [characterMood, setCharacterMood] = useState<CharacterMood>(DEFAULT_MOOD);
+  const [gameState, setGameState] = useState<GameState>(DEFAULT_GAME);
+  const [pendingGame, setPendingGame] = useState(false);
+  const [turnCount, setTurnCount] = useState(0);
   const sessionIdRef = useRef<string>('');
   const bottomRef = useRef<HTMLDivElement>(null);
   const refreshMenuRef = useRef<HTMLDivElement>(null);
@@ -274,6 +304,9 @@ export default function HomePage() {
     setMessages(INITIAL_MESSAGES);
     setSuggestions(DEFAULT_SUGGESTIONS);
     setCharacterMood(DEFAULT_MOOD);
+    setGameState(DEFAULT_GAME);
+    setPendingGame(false);
+    setTurnCount(0);
     setShowRefreshMenu(false);
   };
 
@@ -361,6 +394,7 @@ export default function HomePage() {
     const updatedMessages = [...historyBase, userMessage];
     setMessages(updatedMessages);
     setIsStreaming(true);
+    setTurnCount(prev => prev + 1);
 
     await saveMessage({ role: 'user', content: userText });
 
@@ -393,7 +427,11 @@ export default function HomePage() {
       try {
         const contextNote = buildContextNote(char);
         const apiMessages = buildApiMessages(updatedMessages, char, contextNote);
-        const moodContext = buildMoodContext(characterMood, char);
+        const moodCtx = buildMoodContext(characterMood, char);
+        const gameCtx = gameState.active
+          ? buildGameContext({ ...gameState, round: gameState.round + 1 })
+          : (char === 'mimi' && turnCount >= 6 && !pendingGame ? buildGameProposalHint() : null);
+        const combinedContext = [moodCtx, gameCtx].filter(Boolean).join('\n\n') || null;
         raw = await streamResponse(apiMessages, char, (accumulated) => {
           // During streaming, show without [split] markers
           const preview = accumulated.replace(/\[split\]/gi, ' ').trimStart();
@@ -402,7 +440,7 @@ export default function HomePage() {
             updated[updated.length - 1] = { role: 'assistant', character: char, content: preview };
             return updated;
           });
-        }, username, trendingContext, moodContext);
+        }, username, trendingContext, combinedContext);
 
         // Split into parts after streaming completes
         const parts = raw.split(/\[split\]/gi).map(p => p.trim()).filter(Boolean);
@@ -443,6 +481,19 @@ export default function HomePage() {
       }
 
       roundResponses.push({ char, content: raw });
+
+      // ゲーム状態の更新
+      if (char === 'mimi') {
+        if (gameState.active) {
+          if (GAME_END_REGEX.test(raw)) {
+            setGameState(DEFAULT_GAME);
+          } else {
+            setGameState(prev => ({ ...prev, round: prev.round + 1 }));
+          }
+        } else if (!pendingGame && GAME_PROPOSAL_REGEX.test(raw)) {
+          setPendingGame(true);
+        }
+      }
 
       // 感情状態を更新して localStorage に保存
       setCharacterMood(prev => {
@@ -628,8 +679,40 @@ export default function HomePage() {
                     <span key={d} className="w-1.5 h-1.5 bg-purple-300 rounded-full animate-bounce" style={{ animationDelay: `${d}ms` }} />
                   ))}
                 </div>
+              ) : pendingGame ? (
+                // ゲーム提案チップ
+                <>
+                  <span className="flex-shrink-0 text-xs text-orange-500 dark:text-orange-400 font-semibold px-1">🎮 Mimiがゲームを提案中</span>
+                  {["ok fine, let's do it (｀ε´)", "what are the 3 things?", "nah skip"].map((s, i) => (
+                    <button
+                      key={i}
+                      onClick={() => {
+                        if (s === "nah skip") {
+                          setPendingGame(false);
+                          fetchSuggestions(messages);
+                        } else {
+                          setPendingGame(false);
+                          setGameState({ active: true, type: 'lie_detection', round: 1 });
+                          sendMessage(s);
+                        }
+                      }}
+                      className={`flex-shrink-0 text-xs rounded-full px-3 py-1.5 transition-colors border ${
+                        s === "nah skip"
+                          ? "text-gray-500 bg-gray-50 dark:bg-gray-700 border-gray-200 dark:border-gray-600 hover:bg-gray-100"
+                          : "text-orange-600 dark:text-orange-300 bg-orange-50 dark:bg-gray-700 border-orange-200 dark:border-orange-700 hover:bg-orange-100"
+                      }`}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </>
               ) : (
                 <>
+                  {gameState.active && (
+                    <span className="flex-shrink-0 text-xs text-orange-400 dark:text-orange-300 font-semibold px-1 animate-pulse">
+                      🎮 Round {gameState.round}
+                    </span>
+                  )}
                   {suggestions.map((s, i) => (
                     <button
                       key={i}
@@ -639,25 +722,36 @@ export default function HomePage() {
                       {s}
                     </button>
                   ))}
-                  <button
-                    onClick={() => fetchSuggestions(messages)}
-                    className="flex-shrink-0 text-gray-400 hover:text-purple-400 dark:hover:text-purple-300 transition-colors p-1.5"
-                    title="サジェストを更新"
-                  >
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                      <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-                    </svg>
-                  </button>
-                  <button
-                    onClick={() => fetchTopics(messages)}
-                    className="flex-shrink-0 text-gray-400 hover:text-indigo-500 dark:hover:text-indigo-300 transition-colors p-1.5"
-                    title="話題を変える"
-                  >
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                      <path d="M8 12h8M12 8l4 4-4 4"/>
-                      <circle cx="12" cy="12" r="9"/>
-                    </svg>
-                  </button>
+                  {gameState.active ? (
+                    <button
+                      onClick={() => setGameState(DEFAULT_GAME)}
+                      className="flex-shrink-0 text-xs text-gray-400 hover:text-red-400 dark:hover:text-red-300 transition-colors rounded-full px-2 py-1.5 border border-gray-200 dark:border-gray-600"
+                    >
+                      やめる
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => fetchSuggestions(messages)}
+                        className="flex-shrink-0 text-gray-400 hover:text-purple-400 dark:hover:text-purple-300 transition-colors p-1.5"
+                        title="サジェストを更新"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                          <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                        </svg>
+                      </button>
+                      <button
+                        onClick={() => fetchTopics(messages)}
+                        className="flex-shrink-0 text-gray-400 hover:text-indigo-500 dark:hover:text-indigo-300 transition-colors p-1.5"
+                        title="話題を変える"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                          <path d="M8 12h8M12 8l4 4-4 4"/>
+                          <circle cx="12" cy="12" r="9"/>
+                        </svg>
+                      </button>
+                    </>
+                  )}
                 </>
               )}
             </div>
