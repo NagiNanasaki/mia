@@ -9,6 +9,79 @@ import CatAvatar from '@/components/CatAvatar';
 import VocabModal from '@/components/VocabModal';
 import UsernameModal from '@/components/UsernameModal';
 
+// --- 感情状態 ---
+type MoodMia = 'neutral' | 'excited' | 'annoyed' | 'amused' | 'bored'
+type MoodMimi = 'neutral' | 'chaotic' | 'annoyed' | 'smug' | 'bored' | 'suspicious'
+
+type CharacterMood = {
+  mia: { mood: MoodMia; intensity: number; trigger: string }
+  mimi: { mood: MoodMimi; intensity: number; trigger: string }
+}
+
+const DEFAULT_MOOD: CharacterMood = {
+  mia: { mood: 'neutral', intensity: 0, trigger: '' },
+  mimi: { mood: 'neutral', intensity: 0, trigger: '' },
+}
+
+function detectMoodChange(text: string, char: 'mia' | 'mimi'): { mood: string; delta: number; trigger: string } | null {
+  if (char === 'mia') {
+    if (/WAIT|(?<!\w)NO(?!\w)|OMG|WHAT(?!\w)/i.test(text) || /ﾟДﾟ|°Д°/.test(text))
+      return { mood: 'excited', delta: 0.3, trigger: 'reacted strongly' }
+    if (/physically pained|screaming|SCREAMING|in pain/.test(text))
+      return { mood: 'annoyed', delta: 0.2, trigger: 'something pained her' }
+    if (/\bboring\b|\bbored\b|anyway—|not invested/.test(text))
+      return { mood: 'bored', delta: 0.15, trigger: 'lost interest' }
+    if (/lol|I'll allow|okay fine|bless/.test(text))
+      return { mood: 'amused', delta: 0.15, trigger: 'found something funny' }
+  } else {
+    if (/I didn't do anything|that was a different Mimi|I am a good person/.test(text))
+      return { mood: 'chaotic', delta: 0.25, trigger: 'in denial mode' }
+    if (/I knew that|I'm always right|I'm never wrong|I'm literally always right/.test(text))
+      return { mood: 'smug', delta: 0.2, trigger: 'claiming to be right' }
+    if (/\bboring\b|\bbored\b|I'm bored|anyway/.test(text))
+      return { mood: 'bored', delta: 0.15, trigger: 'disengaged' }
+    if (/seriously|I can't believe|ugh/.test(text))
+      return { mood: 'annoyed', delta: 0.15, trigger: 'mildly irritated' }
+    if (/WAIT|(?<!\w)NO(?!\w)/i.test(text))
+      return { mood: 'chaotic', delta: 0.1, trigger: 'reactive moment' }
+  }
+  return null
+}
+
+function applyMoodUpdate(prev: CharacterMood, char: 'mia' | 'mimi', response: string): CharacterMood {
+  const decayedIntensity = prev[char].intensity * 0.8
+  const change = detectMoodChange(response, char)
+  if (!change) {
+    return { ...prev, [char]: { ...prev[char], intensity: decayedIntensity } }
+  }
+  return {
+    ...prev,
+    [char]: {
+      mood: change.mood as MoodMia & MoodMimi,
+      intensity: Math.min(1, decayedIntensity + change.delta),
+      trigger: change.trigger,
+    },
+  }
+}
+
+function buildMoodContext(mood: CharacterMood, char: 'mia' | 'mimi'): string | null {
+  const m = mood[char]
+  if (m.intensity < 0.3 || m.mood === 'neutral') return null
+  const descriptions: Record<string, string> = {
+    excited: 'fired up and reactive — big energy right now',
+    annoyed: 'a little irritated — something got under her skin',
+    amused: 'in a good mood — found something funny recently',
+    bored: 'losing interest — ready to derail at any moment',
+    chaotic: 'in full chaos mode — recently denied something and doubling down',
+    smug: 'feeling very right about something — will not let it go',
+    suspicious: 'side-eyeing the conversation',
+  }
+  const desc = descriptions[m.mood] ?? m.mood
+  const name = char === 'mia' ? 'Mia' : 'Mimi'
+  return `[${name}'s current mood: ${m.mood} (${m.intensity.toFixed(1)}) — ${desc}. Let this subtly colour your response without announcing it.]`
+}
+// --- /感情状態 ---
+
 const DEFAULT_SUGGESTIONS = [
   "What's your favourite anime right now?",
   "Teach me a cool British slang word!",
@@ -68,11 +141,12 @@ async function streamResponse(
   onChunk: (accumulated: string) => void,
   username?: string | null,
   trendingContext?: string | null,
+  moodContext?: string | null,
 ): Promise<string> {
   const response = await fetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages: apiMessages, character, username, localTime: new Date().toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false }), trendingContext }),
+    body: JSON.stringify({ messages: apiMessages, character, username, localTime: new Date().toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false }), trendingContext, moodContext }),
   });
 
   if (!response.ok) throw new Error(`API error: ${response.status}`);
@@ -108,6 +182,7 @@ export default function HomePage() {
   const [trendingContext, setTrendingContext] = useState<string | null>(null);
   const [loadingTrending, setLoadingTrending] = useState(false);
   const [showRefreshMenu, setShowRefreshMenu] = useState(false);
+  const [characterMood, setCharacterMood] = useState<CharacterMood>(DEFAULT_MOOD);
   const sessionIdRef = useRef<string>('');
   const bottomRef = useRef<HTMLDivElement>(null);
   const refreshMenuRef = useRef<HTMLDivElement>(null);
@@ -121,6 +196,9 @@ export default function HomePage() {
       const savedName = localStorage.getItem('mia_username');
       if (savedName) setUsername(savedName);
       else setShowUsernameModal(true);
+
+      const savedMood = localStorage.getItem('mia_mood');
+      if (savedMood) { try { setCharacterMood(JSON.parse(savedMood)); } catch { /* ignore */ } }
 
       const savedDark = localStorage.getItem('mia_dark') === '1';
       setDarkMode(savedDark);
@@ -191,9 +269,11 @@ export default function HomePage() {
   const refreshConversation = () => {
     const newId = uuidv4();
     localStorage.setItem('mia_session_id', newId);
+    localStorage.removeItem('mia_mood');
     sessionIdRef.current = newId;
     setMessages(INITIAL_MESSAGES);
     setSuggestions(DEFAULT_SUGGESTIONS);
+    setCharacterMood(DEFAULT_MOOD);
     setShowRefreshMenu(false);
   };
 
@@ -313,6 +393,7 @@ export default function HomePage() {
       try {
         const contextNote = buildContextNote(char);
         const apiMessages = buildApiMessages(updatedMessages, char, contextNote);
+        const moodContext = buildMoodContext(characterMood, char);
         raw = await streamResponse(apiMessages, char, (accumulated) => {
           // During streaming, show without [split] markers
           const preview = accumulated.replace(/\[split\]/gi, ' ').trimStart();
@@ -321,7 +402,7 @@ export default function HomePage() {
             updated[updated.length - 1] = { role: 'assistant', character: char, content: preview };
             return updated;
           });
-        }, username, trendingContext);
+        }, username, trendingContext, moodContext);
 
         // Split into parts after streaming completes
         const parts = raw.split(/\[split\]/gi).map(p => p.trim()).filter(Boolean);
@@ -362,6 +443,14 @@ export default function HomePage() {
       }
 
       roundResponses.push({ char, content: raw });
+
+      // 感情状態を更新して localStorage に保存
+      setCharacterMood(prev => {
+        const next = applyMoodUpdate(prev, char, raw);
+        localStorage.setItem('mia_mood', JSON.stringify(next));
+        return next;
+      });
+
       const history: Message[] = [...currentMessages, { role: 'assistant', character: char, content: raw }];
       return { response: raw, history };
     };
