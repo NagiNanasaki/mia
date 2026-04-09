@@ -107,8 +107,10 @@ export default function HomePage() {
   const [darkMode, setDarkMode] = useState(false);
   const [trendingContext, setTrendingContext] = useState<string | null>(null);
   const [loadingTrending, setLoadingTrending] = useState(false);
+  const [showRefreshMenu, setShowRefreshMenu] = useState(false);
   const sessionIdRef = useRef<string>('');
   const bottomRef = useRef<HTMLDivElement>(null);
+  const refreshMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const init = async () => {
@@ -173,6 +175,26 @@ export default function HomePage() {
       .then(r => r.json())
       .then(({ suggestions: s }) => { if (s?.length) setSuggestions(s); })
       .finally(() => setLoadingSuggestions(false));
+  };
+
+  // Close refresh menu on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (refreshMenuRef.current && !refreshMenuRef.current.contains(e.target as Node)) {
+        setShowRefreshMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const refreshConversation = () => {
+    const newId = uuidv4();
+    localStorage.setItem('mia_session_id', newId);
+    sessionIdRef.current = newId;
+    setMessages(INITIAL_MESSAGES);
+    setSuggestions(DEFAULT_SUGGESTIONS);
+    setShowRefreshMenu(false);
   };
 
   const fetchTrending = () => {
@@ -381,16 +403,42 @@ export default function HomePage() {
               <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
             )}
           </button>
-          <button
-            onClick={fetchTrending}
-            disabled={loadingTrending}
-            className="text-gray-400 hover:text-indigo-500 dark:hover:text-indigo-300 transition-colors p-1.5 disabled:opacity-40"
-            title={trendingContext ? 'ニュースを更新' : 'ニュースを取得'}
-          >
-            <svg className={`w-4 h-4 ${loadingTrending ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-            </svg>
-          </button>
+          {/* Refresh menu */}
+          <div className="relative" ref={refreshMenuRef}>
+            <button
+              onClick={() => setShowRefreshMenu(v => !v)}
+              className="text-gray-400 hover:text-indigo-500 dark:hover:text-indigo-300 transition-colors p-1.5"
+              title="更新メニュー"
+            >
+              <svg className={`w-4 h-4 ${loadingTrending ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+              </svg>
+            </button>
+            {showRefreshMenu && (
+              <div className="absolute right-0 top-full mt-1 w-40 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg overflow-hidden z-50">
+                <button
+                  onClick={() => { fetchTrending(); setShowRefreshMenu(false); }}
+                  disabled={loadingTrending}
+                  className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-indigo-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-40"
+                >
+                  <svg className="w-3.5 h-3.5 text-indigo-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                  </svg>
+                  情報更新
+                </button>
+                <div className="border-t border-gray-100 dark:border-gray-700" />
+                <button
+                  onClick={refreshConversation}
+                  className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-pink-50 dark:hover:bg-gray-700 transition-colors"
+                >
+                  <svg className="w-3.5 h-3.5 text-pink-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+                  </svg>
+                  会話リフレッシュ
+                </button>
+              </div>
+            )}
+          </div>
           <button
             onClick={() => setShowVocab(true)}
             className="text-purple-400 hover:text-purple-600 dark:text-purple-400 dark:hover:text-purple-300 transition-colors p-1.5"
