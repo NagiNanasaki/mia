@@ -101,15 +101,20 @@ export async function PATCH(req: NextRequest) {
     return Response.json({ error: 'missing fields' }, { status: 400 });
   }
 
-  // Update existing row first
-  const { count } = await supabase
+  // Check if a row exists for this owner
+  const { data: existing } = await supabase
     .from('user_profile')
-    .update({ last_session_id, updated_at: new Date().toISOString() })
+    .select('owner_id')
     .eq('owner_id', owner_id)
-    .select('owner_id', { count: 'exact', head: true });
+    .maybeSingle();
 
-  // No existing row — insert with empty profile so NOT NULL is satisfied
-  if (!count) {
+  if (existing) {
+    await supabase
+      .from('user_profile')
+      .update({ last_session_id, updated_at: new Date().toISOString() })
+      .eq('owner_id', owner_id);
+  } else {
+    // No row yet — insert with empty profile so NOT NULL is satisfied
     await supabase.from('user_profile').insert({
       owner_id,
       profile_text: '',
