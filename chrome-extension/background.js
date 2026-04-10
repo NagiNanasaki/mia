@@ -9,7 +9,7 @@ chrome.runtime.onInstalled.addListener(() => {
   });
 });
 
-chrome.contextMenus.onClicked.addListener(async (info) => {
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId !== MENU_ID) return;
 
   const word = (info.selectionText ?? '').trim();
@@ -18,7 +18,7 @@ chrome.contextMenus.onClicked.addListener(async (info) => {
   const { connection_code } = await chrome.storage.local.get('connection_code');
 
   if (!connection_code) {
-    notify('連携コードを設定してください', '拡張機能のアイコンをクリックしてコードを入力してください');
+    toast(tab, { success: false, message: '連携コードを設定してください' });
     return;
   }
 
@@ -32,22 +32,17 @@ chrome.contextMenus.onClicked.addListener(async (info) => {
     const data = await res.json();
 
     if (!res.ok) {
-      const msg = data?.error ?? '保存できませんでした';
-      notify(msg === '単語・熟語のみ保存できます' ? msg : '保存できませんでした', msg);
+      toast(tab, { success: false, message: data?.error ?? '保存できませんでした' });
       return;
     }
 
-    notify('単語帳に保存しました', `${data.phrase} → ${data.translation}`);
+    toast(tab, { success: true, phrase: data.phrase, translation: data.translation });
   } catch {
-    notify('保存できませんでした', 'ネットワークエラーが発生しました');
+    toast(tab, { success: false, message: 'ネットワークエラーが発生しました' });
   }
 });
 
-function notify(title, message) {
-  chrome.notifications.create({
-    type: 'basic',
-    iconUrl: 'icon.png',
-    title,
-    message,
-  });
+function toast(tab, payload) {
+  if (!tab?.id) return;
+  chrome.tabs.sendMessage(tab.id, { type: 'MIA_TOAST', ...payload }).catch(() => {});
 }
