@@ -881,8 +881,12 @@ export default function HomePage() {
                     className="flex-shrink-0 text-gray-400 hover:text-purple-500 dark:hover:text-purple-300 transition-colors p-1.5"
                     title="翻訳"
                   >
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                      <path d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129"/>
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                      <path d="M2 5h12"/>
+                      <path d="M7 2v3"/>
+                      <path d="M4 14c0-2 2-5 4-5s4 3 4 5"/>
+                      <path d="M14 18l4-8 4 8"/>
+                      <path d="M15.5 15.5h5"/>
                     </svg>
                   </Link>
                 </>
