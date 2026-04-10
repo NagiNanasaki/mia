@@ -1,78 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { readFileSync } from 'fs';
 import { NextRequest } from 'next/server';
-import * as unzipper from 'unzipper';
 import { supabase } from '@/lib/supabase';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-
-// ---- Twitter archive parser ----
-function parseTweetsJs(raw: string): string[] {
-  // Strip the JS assignment wrapper: "window.YTD.tweets.part0 = [...]"
-  const json = raw.replace(/^[^[]+/, '').replace(/;\s*$/, '').trim();
-  const items = JSON.parse(json) as Array<{ tweet: { full_text: string; lang?: string } }>;
-  return items
-    .map((item) => item.tweet?.full_text ?? '')
-    .filter((t) => t && !t.startsWith('RT @')); // drop retweets
-}
-
-// ---- Discord messages.json parser ----
-function parseDiscordMessages(raw: string): string[] {
-  const items = JSON.parse(raw) as Array<{ Contents?: string; content?: string }>;
-  return items
-    .map((m) => m.Contents ?? m.content ?? '')
-    .filter(Boolean);
-}
-
-// ---- Read a single entry from ZIP ----
-async function readZipEntry(zipPath: string, entryName: string): Promise<string | null> {
-  const directory = await unzipper.Open.file(zipPath);
-  const file = directory.files.find((f) => f.path === entryName);
-  if (!file) return null;
-  const buffer = await file.buffer();
-  return buffer.toString('utf8');
-}
-
-// ---- Load messages from sources ----
-async function loadMessages(): Promise<string[]> {
-  const messages: string[] = [];
-
-  // Twitter archives (support multiple accounts)
-  const twitterPaths = [
-    process.env.TWITTER_ARCHIVE_PATH,
-    process.env.TWITTER_ARCHIVE_PATH_2,
-  ].filter(Boolean) as string[];
-
-  for (const twitterPath of twitterPaths) {
-    try {
-      const raw = await readZipEntry(twitterPath, 'data/tweets.js');
-      if (raw) {
-        const tweets = parseTweetsJs(raw);
-        messages.push(...tweets);
-        console.log(`[profile] Loaded ${tweets.length} tweets from ${twitterPath}`);
-      } else {
-        console.warn(`[profile] data/tweets.js not found in ${twitterPath}`);
-      }
-    } catch (e) {
-      console.error(`[profile] Twitter archive read failed (${twitterPath}):`, e);
-    }
-  }
-
-  // Discord messages (optional JSON file)
-  const discordPath = process.env.DISCORD_MESSAGES_PATH;
-  if (discordPath) {
-    try {
-      const raw = readFileSync(discordPath, 'utf8');
-      const msgs = parseDiscordMessages(raw);
-      messages.push(...msgs);
-      console.log(`[profile] Loaded ${msgs.length} Discord messages`);
-    } catch (e) {
-      console.error('[profile] Discord messages read failed:', e);
-    }
-  }
-
-  return messages;
-}
 
 // ---- GET: load saved profile + last_session_id ----
 export async function GET(req: NextRequest) {
@@ -126,23 +56,44 @@ export async function PATCH(req: NextRequest) {
   return Response.json({ ok: true });
 }
 
-// ---- POST: generate profile from archive ----
+// ---- POST: generate profile from chat history ----
 export async function POST(req: NextRequest) {
-  const { owner_id } = await req.json() as { owner_id: string };
+  const { owner_id, session_id } = await req.json() as { owner_id: string; session_id?: string };
   if (!owner_id) return Response.json({ error: 'missing owner_id' }, { status: 400 });
 
-  const messages = await loadMessages();
-  if (messages.length === 0) {
-    return Response.json(
-      { error: 'No messages found. Check TWITTER_ARCHIVE_PATH in .env.local.' },
-      { status: 400 }
-    );
+  // Collect session IDs to query: current session + last_session_id from profile table
+  const sessionIds = new Set<string>();
+  if (session_id) sessionIds.add(session_id);
+
+  const { data: profileRow } = await supabase
+    .from('user_profile')
+    .select('last_session_id')
+    .eq('owner_id', owner_id)
+    .maybeSingle();
+  if (profileRow?.last_session_id) sessionIds.add(profileRow.last_session_id);
+
+  if (sessionIds.size === 0) {
+    return Response.json({ error: 'セッションが見つかりません。チャットを始めてから再試行してください。' }, { status: 400 });
   }
 
-  // Sample up to 200 messages for analysis
-  const sample = messages
+  // Fetch user messages from all known sessions
+  const { data: rows } = await supabase
+    .from('messages')
+    .select('content')
+    .in('session_id', [...sessionIds])
+    .eq('role', 'user')
+    .order('created_at', { ascending: true });
+
+  const userMessages = (rows ?? []).map((r) => r.content as string).filter(Boolean);
+
+  if (userMessages.length < 5) {
+    return Response.json({ error: 'チャット履歴がまだ少なすぎます。もう少し会話してから試してください。' }, { status: 400 });
+  }
+
+  // Sample up to 150 messages
+  const sample = userMessages
     .sort(() => Math.random() - 0.5)
-    .slice(0, 200)
+    .slice(0, 150)
     .join('\n');
 
   const response = await client.messages.create({
@@ -151,13 +102,13 @@ export async function POST(req: NextRequest) {
     messages: [
       {
         role: 'user',
-        content: `You are analyzing casual messages/tweets from a user to help their English tutor AI personalize conversations.
+        content: `You are analyzing chat messages sent by a user to their English tutor AI (Mia/Mimi) to help personalize future conversations.
 
 Analyze these messages and write a profile in 3–5 sentences covering:
 - Their English vocabulary level (beginner / intermediate / advanced)
 - Main topics, interests, and things they talk about most
-- Their tone and communication style (casual, formal, otaku, etc.)
-- Any notable language habits or expressions
+- Their tone and communication style (casual, formal, curious, etc.)
+- Any notable language habits or expressions they use
 
 Messages:
 ${sample}
@@ -178,5 +129,5 @@ Write in English, 3rd person, under 200 words. Flowing sentences only — no hea
     updated_at: new Date().toISOString(),
   });
 
-  return Response.json({ profile: profileText, count: messages.length });
+  return Response.json({ profile: profileText, count: userMessages.length });
 }

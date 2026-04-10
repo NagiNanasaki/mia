@@ -423,7 +423,7 @@ export default function HomePage() {
       const res = await fetch('/api/profile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ owner_id: vocabOwnerIdRef.current }),
+        body: JSON.stringify({ owner_id: vocabOwnerIdRef.current, session_id: sessionIdRef.current }),
       });
       const { profile, error } = await res.json();
       if (profile) setUserProfile(profile);
