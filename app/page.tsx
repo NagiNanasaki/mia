@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useState, useRef, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { supabase } from '@/lib/supabase';
@@ -8,6 +9,7 @@ import ChatInput from '@/components/ChatInput';
 import CatAvatar from '@/components/CatAvatar';
 import VocabModal from '@/components/VocabModal';
 import UsernameModal from '@/components/UsernameModal';
+import SyncModal from '@/components/SyncModal';
 
 // --- 感情状態 ---
 type MoodMia = 'neutral' | 'excited' | 'annoyed' | 'amused' | 'bored'
@@ -82,32 +84,7 @@ function buildMoodContext(mood: CharacterMood, char: 'mia' | 'mimi'): string | n
 }
 // --- /感情状態 ---
 
-// --- ミニゲーム ---
-type GameState = {
-  active: boolean
-  type: 'lie_detection' | null
-  round: number
-}
-
-const DEFAULT_GAME: GameState = { active: false, type: null, round: 0 }
-
-const GAME_PROPOSAL_REGEX = /I dare you|find the (?:lie|wrong one)|one of (?:them|these) is (?:wrong|a lie)|3.*(?:wrong|lie)|(?:wrong|lie).*3/i
-const GAME_END_REGEX = /game over|you (?:got|win|found) it|that(?:'s| is) the (?:lie|wrong one)|ok fine.{0,20}right|well played|you win/i
-
-function buildGameContext(game: GameState): string | null {
-  if (!game.active || game.type !== 'lie_detection') return null
-  return `[ACTIVE GAME — Grammar Lie Detection, Round ${game.round}]
-Present exactly 3 English grammar or vocabulary statements. Make one intentionally wrong (your choice). Rules:
-- Keep all 3 educational and plausible — just sneak one wrong one in
-- If user correctly identifies the lie: deny it first ("no that's right (｀ε´)"), then reluctantly admit it after they push back
-- If user guesses wrong: full confidence they're wrong, no backing down
-- After user finds the lie, or after Round 3, wrap up naturally in character`
-}
-
-function buildGameProposalHint(): string {
-  return `[Optional one-time move: you've been chatting for a while. If the moment feels right, propose a quick grammar lie-detection game — tell the user you'll say 3 English facts and one is a lie, challenge them to find it. Keep it in character and casual. Don't force it if the conversation is already interesting.]`
-}
-// --- /ミニゲーム ---
+// --- /感情状態 ---
 
 const DEFAULT_SUGGESTIONS = [
   "What's your favourite anime right now?",
@@ -164,7 +141,7 @@ function getStoredId(key: string): string {
 
 function splitMessageContent(content: string): string[] {
   const parts = content
-    .split(/\s*\[split\]\s*|\n\s*\n+/gi)
+    .split(/[ \t]*\[split\][ \t]*|\n[ \t]*\n+/g)
     .map((part) => part.trim())
     .filter(Boolean);
 
@@ -227,11 +204,12 @@ async function streamResponse(
   username?: string | null,
   trendingContext?: string | null,
   moodContext?: string | null,
+  userProfile?: string | null,
 ): Promise<string> {
   const response = await fetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages: apiMessages, character, username, localTime: new Date().toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false }), trendingContext, moodContext }),
+    body: JSON.stringify({ messages: apiMessages, character, username, localTime: new Date().toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false }), trendingContext, moodContext, userProfile }),
   });
 
   if (!response.ok) throw new Error(`API error: ${response.status}`);
@@ -268,9 +246,9 @@ export default function HomePage() {
   const [loadingTrending, setLoadingTrending] = useState(false);
   const [showRefreshMenu, setShowRefreshMenu] = useState(false);
   const [characterMood, setCharacterMood] = useState<CharacterMood>(DEFAULT_MOOD);
-  const [gameState, setGameState] = useState<GameState>(DEFAULT_GAME);
-  const [pendingGame, setPendingGame] = useState(false);
-  const [turnCount, setTurnCount] = useState(0);
+  const [userProfile, setUserProfile] = useState<string | null>(null);
+  const [generatingProfile, setGeneratingProfile] = useState(false);
+  const [showSync, setShowSync] = useState(false);
   const sessionIdRef = useRef<string>('');
   const vocabOwnerIdRef = useRef<string>('');
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -314,6 +292,27 @@ export default function HomePage() {
         setMessages(getInitialMessages());
       }
       setIsLoading(false);
+
+      // Load user profile + sync session from Supabase
+      fetch(`/api/profile?owner_id=${vocabOwnerId}`)
+        .then(r => r.json())
+        .then(({ profile, last_session_id }) => {
+          if (profile) setUserProfile(profile);
+          // If this device has no saved session but Supabase has one, restore it
+          const localSession = localStorage.getItem('mia_session_id');
+          if (last_session_id && !localSession) {
+            localStorage.setItem('mia_session_id', last_session_id);
+            sessionIdRef.current = last_session_id;
+          }
+        })
+        .catch(() => {});
+
+      // Register this session as the latest for this owner
+      fetch('/api/profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ owner_id: vocabOwnerId, last_session_id: sessionId }),
+      }).catch(() => {});
 
       // Fetch today's trending context in background (non-blocking)
       fetchTrending();
@@ -366,9 +365,6 @@ export default function HomePage() {
     setMessages(getInitialMessages());
     setSuggestions(DEFAULT_SUGGESTIONS);
     setCharacterMood(DEFAULT_MOOD);
-    setGameState(DEFAULT_GAME);
-    setPendingGame(false);
-    setTurnCount(0);
     setShowRefreshMenu(false);
   };
 
@@ -379,6 +375,55 @@ export default function HomePage() {
       .then(({ context }) => { if (context) setTrendingContext(context); })
       .catch(() => {})
       .finally(() => setLoadingTrending(false));
+  };
+
+  const handleSync = async (code: string) => {
+    // Overwrite owner ID with the code from another device
+    localStorage.setItem('mia_vocab_owner_id', code);
+    vocabOwnerIdRef.current = code;
+
+    // Load profile + last session from the new owner
+    const res = await fetch(`/api/profile?owner_id=${code}`);
+    const { profile, last_session_id } = await res.json();
+    if (profile) setUserProfile(profile);
+
+    if (last_session_id) {
+      localStorage.setItem('mia_session_id', last_session_id);
+      sessionIdRef.current = last_session_id;
+
+      // Load messages for that session
+      const { data } = await supabase
+        .from('messages')
+        .select('role, content, character, created_at')
+        .eq('session_id', last_session_id)
+        .order('created_at', { ascending: true });
+
+      if (data && data.length > 0) {
+        setMessages(normalizeMessages(data.map(m => ({
+          ...m,
+          character: (m.character as 'mia' | 'mimi') ?? 'mia',
+        }))));
+      }
+    }
+    setShowSync(false);
+  };
+
+  const generateProfile = async () => {
+    setGeneratingProfile(true);
+    try {
+      const res = await fetch('/api/profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ owner_id: vocabOwnerIdRef.current }),
+      });
+      const { profile, error } = await res.json();
+      if (profile) setUserProfile(profile);
+      else alert(error ?? 'プロファイル生成に失敗しました');
+    } catch {
+      alert('プロファイル生成に失敗しました');
+    } finally {
+      setGeneratingProfile(false);
+    }
   };
 
   const fetchTopics = (msgs: Message[]) => {
@@ -456,7 +501,6 @@ export default function HomePage() {
     const updatedMessages = [...historyBase, userMessage];
     setMessages(updatedMessages);
     setIsStreaming(true);
-    setTurnCount(prev => prev + 1);
 
     await saveMessage({ role: 'user', content: userText });
 
@@ -490,19 +534,16 @@ export default function HomePage() {
         const contextNote = buildContextNote();
         const apiMessages = buildApiMessages(updatedMessages, char, contextNote);
         const moodCtx = buildMoodContext(characterMood, char);
-        const gameCtx = gameState.active
-          ? buildGameContext({ ...gameState, round: gameState.round + 1 })
-          : (char === 'mimi' && turnCount >= 6 && !pendingGame ? buildGameProposalHint() : null);
-        const combinedContext = [moodCtx, gameCtx].filter(Boolean).join('\n\n') || null;
+        const combinedContext = moodCtx || null;
         raw = await streamResponse(apiMessages, char, (accumulated) => {
           // During streaming, show without [split] markers
-          const preview = accumulated.replace(/\[split\]/gi, ' ').trimStart();
+          const preview = accumulated.replace(/\[split\]/gi, ' ').replace(/\n[ \t]*\n+/g, ' ').trimStart();
           setMessages((prev) => {
             const updated = [...prev];
             updated[updated.length - 1] = { role: 'assistant', character: char, content: preview };
             return updated;
           });
-        }, username, trendingContext, combinedContext);
+        }, username, trendingContext, combinedContext, userProfile);
 
         // Split into parts after streaming completes
         const parts = splitMessageContent(raw);
@@ -543,19 +584,6 @@ export default function HomePage() {
       }
 
       roundResponses.push({ char, content: raw });
-
-      // ゲーム状態の更新
-      if (char === 'mimi') {
-        if (gameState.active) {
-          if (GAME_END_REGEX.test(raw)) {
-            setGameState(DEFAULT_GAME);
-          } else {
-            setGameState(prev => ({ ...prev, round: prev.round + 1 }));
-          }
-        } else if (!pendingGame && GAME_PROPOSAL_REGEX.test(raw)) {
-          setPendingGame(true);
-        }
-      }
 
       // 感情状態を更新して localStorage に保存
       setCharacterMood(prev => {
@@ -679,6 +707,33 @@ export default function HomePage() {
               </div>
             )}
           </div>
+          {/* Sync button */}
+          <button
+            onClick={() => setShowSync(true)}
+            className="text-gray-400 hover:text-indigo-500 dark:hover:text-indigo-300 transition-colors p-1.5"
+            title="デバイス同期"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1-4l-3 3m0 0l-3-3m3 3V4"/>
+            </svg>
+          </button>
+          {/* Profile generation button */}
+          <button
+            onClick={generateProfile}
+            disabled={generatingProfile}
+            className={`transition-colors p-1.5 ${userProfile ? 'text-green-400 hover:text-green-600 dark:text-green-400 dark:hover:text-green-300' : 'text-gray-400 hover:text-blue-500 dark:hover:text-blue-300'} disabled:opacity-40`}
+            title={userProfile ? 'プロファイル済み（再生成）' : 'Twitterデータからプロファイル生成'}
+          >
+            {generatingProfile ? (
+              <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+              </svg>
+            ) : (
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+              </svg>
+            )}
+          </button>
           <button
             onClick={() => setShowVocab(true)}
             className="text-purple-400 hover:text-purple-600 dark:text-purple-400 dark:hover:text-purple-300 transition-colors p-1.5"
@@ -735,6 +790,15 @@ export default function HomePage() {
         <VocabModal vocabOwnerId={vocabOwnerIdRef.current} onClose={() => setShowVocab(false)} />
       )}
 
+      {/* Sync modal */}
+      {showSync && (
+        <SyncModal
+          ownerId={vocabOwnerIdRef.current}
+          onSync={handleSync}
+          onClose={() => setShowSync(false)}
+        />
+      )}
+
       {/* Input */}
       <footer className="px-4 pb-5 pt-3 bg-white/70 dark:bg-gray-800/80 backdrop-blur-sm border-t border-purple-100 dark:border-gray-700">
         <div className="max-w-3xl mx-auto">
@@ -747,40 +811,8 @@ export default function HomePage() {
                     <span key={d} className="w-1.5 h-1.5 bg-purple-300 rounded-full animate-bounce" style={{ animationDelay: `${d}ms` }} />
                   ))}
                 </div>
-              ) : pendingGame ? (
-                // ゲーム提案チップ
-                <>
-                  <span className="flex-shrink-0 text-xs text-orange-500 dark:text-orange-400 font-semibold px-1">🎮 Mimiがゲームを提案中</span>
-                  {["ok fine, let's do it (｀ε´)", "what are the 3 things?", "nah skip"].map((s, i) => (
-                    <button
-                      key={i}
-                      onClick={() => {
-                        if (s === "nah skip") {
-                          setPendingGame(false);
-                          fetchSuggestions(messages);
-                        } else {
-                          setPendingGame(false);
-                          setGameState({ active: true, type: 'lie_detection', round: 1 });
-                          sendMessage(s);
-                        }
-                      }}
-                      className={`flex-shrink-0 text-xs rounded-full px-3 py-1.5 transition-colors border ${
-                        s === "nah skip"
-                          ? "text-gray-500 bg-gray-50 dark:bg-gray-700 border-gray-200 dark:border-gray-600 hover:bg-gray-100"
-                          : "text-orange-600 dark:text-orange-300 bg-orange-50 dark:bg-gray-700 border-orange-200 dark:border-orange-700 hover:bg-orange-100"
-                      }`}
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </>
               ) : (
                 <>
-                  {gameState.active && (
-                    <span className="flex-shrink-0 text-xs text-orange-400 dark:text-orange-300 font-semibold px-1 animate-pulse">
-                      🎮 Round {gameState.round}
-                    </span>
-                  )}
                   {suggestions.map((s, i) => (
                     <button
                       key={i}
@@ -790,36 +822,35 @@ export default function HomePage() {
                       {s}
                     </button>
                   ))}
-                  {gameState.active ? (
-                    <button
-                      onClick={() => setGameState(DEFAULT_GAME)}
-                      className="flex-shrink-0 text-xs text-gray-400 hover:text-red-400 dark:hover:text-red-300 transition-colors rounded-full px-2 py-1.5 border border-gray-200 dark:border-gray-600"
-                    >
-                      やめる
-                    </button>
-                  ) : (
-                    <>
-                      <button
-                        onClick={() => fetchSuggestions(messages)}
-                        className="flex-shrink-0 text-gray-400 hover:text-purple-400 dark:hover:text-purple-300 transition-colors p-1.5"
-                        title="サジェストを更新"
-                      >
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                          <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-                        </svg>
-                      </button>
-                      <button
-                        onClick={() => fetchTopics(messages)}
-                        className="flex-shrink-0 text-gray-400 hover:text-indigo-500 dark:hover:text-indigo-300 transition-colors p-1.5"
-                        title="話題を変える"
-                      >
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                          <path d="M8 12h8M12 8l4 4-4 4"/>
-                          <circle cx="12" cy="12" r="9"/>
-                        </svg>
-                      </button>
-                    </>
-                  )}
+                  <button
+                    onClick={() => fetchSuggestions(messages)}
+                    className="flex-shrink-0 text-gray-400 hover:text-purple-400 dark:hover:text-purple-300 transition-colors p-1.5"
+                    title="サジェストを更新"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                    </svg>
+                  </button>
+                  <button
+                    onClick={() => fetchTopics(messages)}
+                    className="flex-shrink-0 text-gray-400 hover:text-indigo-500 dark:hover:text-indigo-300 transition-colors p-1.5"
+                    title="話題を変える"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <path d="M8 12h8M12 8l4 4-4 4"/>
+                      <circle cx="12" cy="12" r="9"/>
+                    </svg>
+                  </button>
+                  <Link
+                    href="/game"
+                    className="flex-shrink-0 text-gray-400 hover:text-purple-500 dark:hover:text-purple-300 transition-colors p-1.5"
+                    title="英語クイズ"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <path d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/>
+                      <path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                  </Link>
                 </>
               )}
             </div>

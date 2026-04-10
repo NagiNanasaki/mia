@@ -4,10 +4,15 @@ const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 export async function POST(req: Request) {
   const { messages } = await req.json();
-  if (!messages?.length) return Response.json({ suggestions: [] });
+  const conversationMessages = (messages ?? []).filter(
+    (m: { role: string; character?: string; content: string }) =>
+      !(m.role === 'assistant' && m.character === 'hint') &&
+      !(m.role === 'user' && m.content?.trim?.().startsWith('/hint'))
+  );
+  if (!conversationMessages.length) return Response.json({ suggestions: [] });
 
   // Use last 6 messages for context
-  const recent = messages.slice(-6);
+  const recent = conversationMessages.slice(-6);
   const context = recent
     .map((m: { role: string; character?: string; content: string }) => {
       const name = m.role === 'user' ? 'User' : (m.character === 'mimi' ? 'Mimi' : 'Mia');

@@ -14,6 +14,7 @@ export interface Message {
 
 interface ChatMessageProps {
   message: Message;
+  vocabOwnerId?: string;
 }
 
 const CHARACTERS = {
@@ -45,7 +46,7 @@ function formatTime(isoString?: string): string {
   return date.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
 }
 
-export default function ChatMessage({ message, sessionId }: ChatMessageProps & { sessionId?: string }) {
+export default function ChatMessage({ message, vocabOwnerId }: ChatMessageProps) {
   const isUser = message.role === 'user';
   const char = isUser ? null : CHARACTERS[message.character ?? 'mia'];
 
@@ -56,7 +57,7 @@ export default function ChatMessage({ message, sessionId }: ChatMessageProps & {
   const [vocabCandidates, setVocabCandidates] = useState<VocabCandidate[]>([]);
 
   const handleSave = async () => {
-    if (!sessionId || saveState !== 'idle') return;
+    if (!vocabOwnerId || saveState !== 'idle') return;
     const text = displayText.trim();
     if (!text) return;
     setSaveState('extracting');
@@ -93,7 +94,7 @@ export default function ChatMessage({ message, sessionId }: ChatMessageProps & {
       await fetch('/api/vocab-save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items: selected, sessionId }),
+        body: JSON.stringify({ items: selected, sessionId: vocabOwnerId }),
       });
       setSaveState('saved');
     } catch {
@@ -110,7 +111,7 @@ export default function ChatMessage({ message, sessionId }: ChatMessageProps & {
       const res = await fetch('/api/translate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: message.content }),
+        body: JSON.stringify({ text: message.content, character: message.character ?? null }),
       });
       const { result } = await res.json();
       setTranslation(result);

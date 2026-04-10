@@ -4,9 +4,14 @@ const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 export async function POST(req: Request) {
   const { messages } = await req.json();
+  const conversationMessages = (messages ?? []).filter(
+    (m: { role: string; character?: string; content: string }) =>
+      !(m.role === 'assistant' && m.character === 'hint') &&
+      !(m.role === 'user' && m.content?.trim?.().startsWith('/hint'))
+  );
 
   // Build context from recent messages to suggest DIFFERENT topics
-  const recentTopics = (messages ?? [])
+  const recentTopics = conversationMessages
     .slice(-10)
     .map((m: { role: string; character?: string; content: string }) => {
       const name = m.role === 'user' ? 'User' : (m.character === 'mimi' ? 'Mimi' : 'Mia');

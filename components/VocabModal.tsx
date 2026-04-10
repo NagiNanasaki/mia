@@ -11,11 +11,11 @@ interface VocabItem {
 }
 
 interface Props {
-  sessionId: string;
+  vocabOwnerId: string;
   onClose: () => void;
 }
 
-export default function VocabModal({ sessionId, onClose }: Props) {
+export default function VocabModal({ vocabOwnerId, onClose }: Props) {
   const [items, setItems] = useState<VocabItem[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -23,13 +23,13 @@ export default function VocabModal({ sessionId, onClose }: Props) {
     supabase
       .from('vocabulary')
       .select('id, phrase, translation, created_at')
-      .eq('session_id', sessionId)
+      .eq('session_id', vocabOwnerId)
       .order('created_at', { ascending: false })
       .then(({ data }) => {
         setItems((data as VocabItem[]) ?? []);
         setLoading(false);
       });
-  }, [sessionId]);
+  }, [vocabOwnerId]);
 
   const deleteItem = async (id: string) => {
     await supabase.from('vocabulary').delete().eq('id', id);

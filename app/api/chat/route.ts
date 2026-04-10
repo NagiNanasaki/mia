@@ -223,7 +223,7 @@ async function tavilySearch(query: string): Promise<TavilyResult> {
 }
 
 export async function POST(req: Request) {
-  const { messages, character = 'mia', username, localTime, trendingContext, moodContext } = await req.json();
+  const { messages, character = 'mia', username, localTime, trendingContext, moodContext, userProfile } = await req.json();
 
   const basePrompt = character === 'mimi' ? MIMI_SYSTEM_PROMPT : MIA_SYSTEM_PROMPT;
   let systemPrompt = basePrompt;
@@ -231,6 +231,7 @@ export async function POST(req: Request) {
   if (localTime) systemPrompt += `\n\nThe user's current local time is: ${localTime}. Let this colour your tone naturally — late night (after 23:00) → "why are you up rn", early morning (before 7:00) → "you're awake?? respect", after school hours (15:00-17:00) → casual after-school vibe, etc. Don't announce the time, just let it slip into your tone or a passing comment.`;
   if (trendingContext) systemPrompt += `\n\nHere's what's happening in the world right now — weave these into conversation naturally when relevant, like you just happened to see it online. Don't dump all of them at once; pick one if the moment fits:\n${trendingContext}`;
   if (moodContext) systemPrompt += `\n\n${moodContext}`;
+  if (userProfile) systemPrompt += `\n\nHere's what you know about this user based on their past messages — use it to personalise your replies, reference their interests naturally, and calibrate how you talk to them:\n${userProfile}`;
 
   const temperature = character === 'mimi' ? 1.0 : 0.9;
 
