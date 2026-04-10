@@ -815,6 +815,11 @@ export default function HomePage() {
           ownerId={vocabOwnerIdRef.current}
           sessionId={sessionIdRef.current}
           onSync={handleSync}
+          onReissueCode={(newId) => {
+            localStorage.setItem('mia_vocab_owner_id', newId);
+            vocabOwnerIdRef.current = newId;
+            setShowSync(false);
+          }}
           onClose={() => setShowSync(false)}
         />
       )}
