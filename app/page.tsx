@@ -720,6 +720,15 @@ export default function HomePage() {
                 : <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
               }
             </button>
+            <Link href="/translate" className="text-gray-400 hover:text-purple-500 dark:hover:text-purple-300 transition-colors p-1.5" title="翻訳">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                <path d="M2 5h12"/>
+                <path d="M7 2v3"/>
+                <path d="M4 14c0-2 2-5 4-5s4 3 4 5"/>
+                <path d="M14 18l4-8 4 8"/>
+                <path d="M15.5 15.5h5"/>
+              </svg>
+            </Link>
           </div>
 
           {/* Mobile hamburger */}
