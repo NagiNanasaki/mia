@@ -813,6 +813,7 @@ export default function HomePage() {
       {showSync && (
         <SyncModal
           ownerId={vocabOwnerIdRef.current}
+          sessionId={sessionIdRef.current}
           onSync={handleSync}
           onClose={() => setShowSync(false)}
         />

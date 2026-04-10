@@ -4,19 +4,37 @@ import { useState } from 'react';
 
 interface Props {
   ownerId: string;
+  sessionId: string;
   onSync: (code: string) => void;
   onClose: () => void;
 }
 
-export default function SyncModal({ ownerId, onSync, onClose }: Props) {
+export default function SyncModal({ ownerId, sessionId, onSync, onClose }: Props) {
   const [input, setInput] = useState('');
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState('');
+  const [reissuing, setReissuing] = useState(false);
+  const [reissued, setReissued] = useState(false);
 
   const copy = async () => {
     await navigator.clipboard.writeText(ownerId);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const reissue = async () => {
+    setReissuing(true);
+    try {
+      await fetch('/api/profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ owner_id: ownerId, last_session_id: sessionId }),
+      });
+      setReissued(true);
+      setTimeout(() => setReissued(false), 3000);
+    } finally {
+      setReissuing(false);
+    }
   };
 
   const apply = () => {
@@ -52,6 +70,20 @@ export default function SyncModal({ ownerId, onSync, onClose }: Props) {
             </button>
           </div>
           <p className="text-xs text-gray-400 mt-1.5">別デバイスでこのコードを入力すると会話・単語帳が引き継がれます</p>
+
+          {/* 再発行ボタン */}
+          <button
+            onClick={reissue}
+            disabled={reissuing}
+            className="mt-2 flex items-center gap-1.5 text-xs text-indigo-500 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-200 disabled:opacity-40 transition-colors"
+          >
+            {reissuing ? (
+              <svg className="w-3 h-3 animate-spin" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+            ) : (
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+            )}
+            {reissued ? '✓ 再発行しました' : '現在の会話を再発行'}
+          </button>
         </div>
 
         <div className="border-t border-gray-100 dark:border-gray-700" />
