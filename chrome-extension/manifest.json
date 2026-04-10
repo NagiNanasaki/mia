@@ -9,7 +9,8 @@
     "scripting"
   ],
   "host_permissions": [
-    "https://english-learn-five.vercel.app/*"
+    "https://english-learn-five.vercel.app/*",
+    "<all_urls>"
   ],
   "background": {
     "service_worker": "background.js"
