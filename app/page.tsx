@@ -249,16 +249,16 @@ export default function HomePage() {
   const [userProfile, setUserProfile] = useState<string | null>(null);
   const [generatingProfile, setGeneratingProfile] = useState(false);
   const [showSync, setShowSync] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
   const sessionIdRef = useRef<string>('');
   const vocabOwnerIdRef = useRef<string>('');
   const bottomRef = useRef<HTMLDivElement>(null);
   const refreshMenuRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const init = async () => {
-      const sessionId = getStoredId('mia_session_id');
       const vocabOwnerId = getStoredId('mia_vocab_owner_id');
-      sessionIdRef.current = sessionId;
       vocabOwnerIdRef.current = vocabOwnerId;
 
       // Load username & dark mode from localStorage
@@ -274,6 +274,33 @@ export default function HomePage() {
       document.documentElement.classList.toggle('dark', savedDark);
       const meta = document.querySelector('meta[name="theme-color"]');
       if (meta && savedDark) meta.setAttribute('content', '#111827');
+
+      // Determine session: local > Supabase last_session_id > new UUID
+      // Await profile first to avoid PATCH race condition
+      const localSessionId = localStorage.getItem('mia_session_id');
+      let sessionId = localSessionId;
+
+      try {
+        const profileRes = await fetch(`/api/profile?owner_id=${vocabOwnerId}`);
+        const { profile, last_session_id } = await profileRes.json();
+        if (profile) setUserProfile(profile);
+        if (!sessionId && last_session_id) {
+          sessionId = last_session_id;
+        }
+      } catch { /* ignore */ }
+
+      if (!sessionId) {
+        sessionId = crypto.randomUUID();
+      }
+      localStorage.setItem('mia_session_id', sessionId);
+      sessionIdRef.current = sessionId;
+
+      // Register this session as latest (now that we know the final session ID)
+      fetch('/api/profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ owner_id: vocabOwnerId, last_session_id: sessionId }),
+      }).catch(() => {});
 
       const { data, error } = await supabase
         .from('messages')
@@ -292,27 +319,6 @@ export default function HomePage() {
         setMessages(getInitialMessages());
       }
       setIsLoading(false);
-
-      // Load user profile + sync session from Supabase
-      fetch(`/api/profile?owner_id=${vocabOwnerId}`)
-        .then(r => r.json())
-        .then(({ profile, last_session_id }) => {
-          if (profile) setUserProfile(profile);
-          // If this device has no saved session but Supabase has one, restore it
-          const localSession = localStorage.getItem('mia_session_id');
-          if (last_session_id && !localSession) {
-            localStorage.setItem('mia_session_id', last_session_id);
-            sessionIdRef.current = last_session_id;
-          }
-        })
-        .catch(() => {});
-
-      // Register this session as the latest for this owner
-      fetch('/api/profile', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ owner_id: vocabOwnerId, last_session_id: sessionId }),
-      }).catch(() => {});
 
       // Fetch today's trending context in background (non-blocking)
       fetchTrending();
@@ -346,11 +352,14 @@ export default function HomePage() {
       .finally(() => setLoadingSuggestions(false));
   };
 
-  // Close refresh menu on outside click
+  // Close refresh/hamburger menus on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (refreshMenuRef.current && !refreshMenuRef.current.contains(e.target as Node)) {
         setShowRefreshMenu(false);
+      }
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setShowMenu(false);
       }
     };
     document.addEventListener('mousedown', handler);
@@ -638,28 +647,21 @@ export default function HomePage() {
       {showUsernameModal && <UsernameModal onSave={saveUsername} />}
 
       {/* Header */}
-      <header className="flex items-center gap-3 px-5 py-4 bg-white/80 dark:bg-gray-800/90 backdrop-blur-sm border-b border-purple-100 dark:border-gray-700 shadow-sm" style={{ paddingTop: 'max(1rem, env(safe-area-inset-top))' }}>
+      <header className="flex items-center gap-3 px-4 py-3 bg-white/80 dark:bg-gray-800/90 backdrop-blur-sm border-b border-purple-100 dark:border-gray-700 shadow-sm" style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}>
         <div className="flex -space-x-2">
-          <div className="w-11 h-11 rounded-full overflow-hidden shadow-md border-2 border-white z-10">
-            <CatAvatar variant="mia" size={44} />
+          <div className="w-10 h-10 rounded-full overflow-hidden shadow-md border-2 border-white z-10">
+            <CatAvatar variant="mia" size={40} />
           </div>
-          <div className="w-11 h-11 rounded-full overflow-hidden shadow-md border-2 border-white">
-            <CatAvatar variant="mimi" size={44} />
+          <div className="w-10 h-10 rounded-full overflow-hidden shadow-md border-2 border-white">
+            <CatAvatar variant="mimi" size={40} />
           </div>
         </div>
-        <div>
-          <h1 className="text-lg font-bold text-gray-800 dark:text-gray-100 leading-tight">Mia &amp; Mimi</h1>
-          <p className="text-xs text-purple-500 dark:text-purple-300 font-medium">
-            Your English practice squad ·
-            <span className="text-purple-400 dark:text-purple-400"> Manchester, UK</span>
-          </p>
+        <div className="min-w-0">
+          <h1 className="text-base font-bold text-gray-800 dark:text-gray-100 leading-tight">Mia &amp; Mimi</h1>
+          <p className="text-xs text-purple-500 dark:text-purple-300 font-medium truncate">English practice squad</p>
         </div>
-        <div className="ml-auto flex items-center gap-2">
-          {username && (
-            <button onClick={() => setShowUsernameModal(true)} className="text-xs text-gray-400 dark:text-gray-500 hover:text-purple-500 transition-colors hidden sm:block">
-              {username}
-            </button>
-          )}
+        <div className="ml-auto flex items-center gap-1">
+          {/* Dark mode — always visible */}
           <button
             onClick={toggleDark}
             className="text-gray-400 hover:text-purple-500 dark:text-gray-400 dark:hover:text-yellow-400 transition-colors p-1.5"
@@ -671,69 +673,8 @@ export default function HomePage() {
               <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
             )}
           </button>
-          {/* Refresh menu */}
-          <div className="relative" ref={refreshMenuRef}>
-            <button
-              onClick={() => setShowRefreshMenu(v => !v)}
-              className="text-gray-400 hover:text-indigo-500 dark:hover:text-indigo-300 transition-colors p-1.5"
-              title="更新メニュー"
-            >
-              <svg className={`w-4 h-4 ${loadingTrending ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-              </svg>
-            </button>
-            {showRefreshMenu && (
-              <div className="absolute right-0 top-full mt-1 w-40 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg overflow-hidden z-50">
-                <button
-                  onClick={() => { fetchTrending(); setShowRefreshMenu(false); }}
-                  disabled={loadingTrending}
-                  className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-indigo-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-40"
-                >
-                  <svg className="w-3.5 h-3.5 text-indigo-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                    <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-                  </svg>
-                  情報更新
-                </button>
-                <div className="border-t border-gray-100 dark:border-gray-700" />
-                <button
-                  onClick={refreshConversation}
-                  className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-pink-50 dark:hover:bg-gray-700 transition-colors"
-                >
-                  <svg className="w-3.5 h-3.5 text-pink-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                    <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
-                  </svg>
-                  リフレッシュ
-                </button>
-              </div>
-            )}
-          </div>
-          {/* Sync button */}
-          <button
-            onClick={() => setShowSync(true)}
-            className="text-gray-400 hover:text-indigo-500 dark:hover:text-indigo-300 transition-colors p-1.5"
-            title="デバイス同期"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1-4l-3 3m0 0l-3-3m3 3V4"/>
-            </svg>
-          </button>
-          {/* Profile generation button */}
-          <button
-            onClick={generateProfile}
-            disabled={generatingProfile}
-            className={`transition-colors p-1.5 ${userProfile ? 'text-green-400 hover:text-green-600 dark:text-green-400 dark:hover:text-green-300' : 'text-gray-400 hover:text-blue-500 dark:hover:text-blue-300'} disabled:opacity-40`}
-            title={userProfile ? 'プロファイル済み（再生成）' : 'Twitterデータからプロファイル生成'}
-          >
-            {generatingProfile ? (
-              <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-              </svg>
-            ) : (
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
-              </svg>
-            )}
-          </button>
+
+          {/* Vocab — always visible */}
           <button
             onClick={() => setShowVocab(true)}
             className="text-purple-400 hover:text-purple-600 dark:text-purple-400 dark:hover:text-purple-300 transition-colors p-1.5"
@@ -741,6 +682,84 @@ export default function HomePage() {
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M17 3H7a2 2 0 00-2 2v16l7-3 7 3V5a2 2 0 00-2-2z"/></svg>
           </button>
+
+          {/* Desktop-only buttons */}
+          <div className="hidden sm:flex items-center gap-1">
+            {username && (
+              <button onClick={() => setShowUsernameModal(true)} className="text-xs text-gray-400 dark:text-gray-500 hover:text-purple-500 transition-colors px-1">
+                {username}
+              </button>
+            )}
+            {/* Refresh menu (desktop) */}
+            <div className="relative" ref={refreshMenuRef}>
+              <button onClick={() => setShowRefreshMenu(v => !v)} className="text-gray-400 hover:text-indigo-500 dark:hover:text-indigo-300 transition-colors p-1.5" title="更新メニュー">
+                <svg className={`w-4 h-4 ${loadingTrending ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                </svg>
+              </button>
+              {showRefreshMenu && (
+                <div className="absolute right-0 top-full mt-1 w-40 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg overflow-hidden z-50">
+                  <button onClick={() => { fetchTrending(); setShowRefreshMenu(false); }} disabled={loadingTrending} className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-indigo-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-40">
+                    <svg className="w-3.5 h-3.5 text-indigo-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                    情報更新
+                  </button>
+                  <div className="border-t border-gray-100 dark:border-gray-700" />
+                  <button onClick={refreshConversation} className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-pink-50 dark:hover:bg-gray-700 transition-colors">
+                    <svg className="w-3.5 h-3.5 text-pink-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+                    リフレッシュ
+                  </button>
+                </div>
+              )}
+            </div>
+            <button onClick={() => setShowSync(true)} className="text-gray-400 hover:text-indigo-500 dark:hover:text-indigo-300 transition-colors p-1.5" title="デバイス同期">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1-4l-3 3m0 0l-3-3m3 3V4"/></svg>
+            </button>
+            <button onClick={generateProfile} disabled={generatingProfile} className={`transition-colors p-1.5 ${userProfile ? 'text-green-400 hover:text-green-600' : 'text-gray-400 hover:text-blue-500'} disabled:opacity-40`} title={userProfile ? 'プロファイル済み（再生成）' : 'プロファイル生成'}>
+              {generatingProfile
+                ? <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                : <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+              }
+            </button>
+          </div>
+
+          {/* Mobile hamburger */}
+          <div className="relative sm:hidden" ref={menuRef}>
+            <button onClick={() => setShowMenu(v => !v)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors p-1.5">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
+              </svg>
+            </button>
+            {showMenu && (
+              <div className="absolute right-0 top-full mt-1 w-48 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl overflow-hidden z-50">
+                {username && (
+                  <>
+                    <button onClick={() => { setShowUsernameModal(true); setShowMenu(false); }} className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-purple-50 dark:hover:bg-gray-700 transition-colors">
+                      <svg className="w-3.5 h-3.5 text-purple-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+                      {username}
+                    </button>
+                    <div className="border-t border-gray-100 dark:border-gray-700" />
+                  </>
+                )}
+                <button onClick={() => { fetchTrending(); setShowMenu(false); }} disabled={loadingTrending} className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-indigo-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-40">
+                  <svg className={`w-3.5 h-3.5 text-indigo-400 ${loadingTrending ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                  情報更新
+                </button>
+                <button onClick={() => { refreshConversation(); setShowMenu(false); }} className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-pink-50 dark:hover:bg-gray-700 transition-colors">
+                  <svg className="w-3.5 h-3.5 text-pink-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+                  リフレッシュ
+                </button>
+                <div className="border-t border-gray-100 dark:border-gray-700" />
+                <button onClick={() => { setShowSync(true); setShowMenu(false); }} className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-indigo-50 dark:hover:bg-gray-700 transition-colors">
+                  <svg className="w-3.5 h-3.5 text-indigo-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1-4l-3 3m0 0l-3-3m3 3V4"/></svg>
+                  デバイス同期
+                </button>
+                <button onClick={() => { generateProfile(); setShowMenu(false); }} disabled={generatingProfile} className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-blue-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-40">
+                  <svg className={`w-3.5 h-3.5 ${userProfile ? 'text-green-400' : 'text-blue-400'}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+                  {userProfile ? 'プロファイル再生成' : 'プロファイル生成'}
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
