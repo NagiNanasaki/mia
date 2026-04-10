@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "Mia 単語帳",
+  "version": "1.0.0",
+  "description": "選択した英単語をMiaの単語帳に保存します",
+  "permissions": [
+    "contextMenus",
+    "storage",
+    "notifications"
+  ],
+  "host_permissions": [
+    "https://english-learn-five.vercel.app/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Mia 単語帳"
+  }
+}
