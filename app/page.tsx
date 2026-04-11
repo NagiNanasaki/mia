@@ -205,11 +205,12 @@ async function streamResponse(
   trendingContext?: string | null,
   moodContext?: string | null,
   userProfile?: string | null,
+  streamerVocab?: { streamer: string; phrases: string[] } | null,
 ): Promise<string> {
   const response = await fetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages: apiMessages, character, username, localTime: new Date().toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false }), trendingContext, moodContext, userProfile }),
+    body: JSON.stringify({ messages: apiMessages, character, username, localTime: new Date().toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false }), trendingContext, moodContext, userProfile, streamerVocab }),
   });
 
   if (!response.ok) throw new Error(`API error: ${response.status}`);
@@ -250,6 +251,11 @@ export default function HomePage() {
   const [generatingProfile, setGeneratingProfile] = useState(false);
   const [showSync, setShowSync] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
+  const [streamerName, setStreamerName] = useState('');
+  const [streamerPhrases, setStreamerPhrases] = useState<string[]>([]);
+  const [showStreamerModal, setShowStreamerModal] = useState(false);
+  const [streamerInput, setStreamerInput] = useState('');
+  const [fetchingStreamer, setFetchingStreamer] = useState(false);
   const sessionIdRef = useRef<string>('');
   const vocabOwnerIdRef = useRef<string>('');
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -268,6 +274,16 @@ export default function HomePage() {
 
       const savedMood = localStorage.getItem('mia_mood');
       if (savedMood) { try { setCharacterMood(JSON.parse(savedMood)); } catch { /* ignore */ } }
+
+      const savedStreamer = localStorage.getItem('mia_streamer');
+      if (savedStreamer) {
+        try {
+          const parsed = JSON.parse(savedStreamer);
+          setStreamerName(parsed.streamer ?? '');
+          setStreamerPhrases(parsed.phrases ?? []);
+          setStreamerInput(parsed.streamer ?? '');
+        } catch { /* ignore */ }
+      }
 
       const savedDark = localStorage.getItem('mia_dark') === '1';
       setDarkMode(savedDark);
@@ -448,6 +464,31 @@ export default function HomePage() {
       .finally(() => setLoadingTopics(false));
   };
 
+  const fetchStreamerVocab = async (name: string) => {
+    if (!name.trim()) return;
+    setFetchingStreamer(true);
+    try {
+      const res = await fetch(`/api/twitch-vocab?streamer=${encodeURIComponent(name.trim())}`);
+      if (!res.ok) throw new Error('fetch failed');
+      const data = await res.json();
+      const phrases: string[] = data.phrases ?? [];
+      setStreamerName(data.streamer ?? name.trim());
+      setStreamerPhrases(phrases);
+      localStorage.setItem('mia_streamer', JSON.stringify({ streamer: data.streamer ?? name.trim(), phrases }));
+    } catch {
+      alert('語彙の取得に失敗しました。配信者名を確認してください。');
+    } finally {
+      setFetchingStreamer(false);
+    }
+  };
+
+  const clearStreamer = () => {
+    setStreamerName('');
+    setStreamerPhrases([]);
+    setStreamerInput('');
+    localStorage.removeItem('mia_streamer');
+  };
+
   const saveUsername = (name: string) => {
     localStorage.setItem('mia_username', name);
     setUsername(name);
@@ -544,6 +585,7 @@ export default function HomePage() {
         const apiMessages = buildApiMessages(updatedMessages, char, contextNote);
         const moodCtx = buildMoodContext(characterMood, char);
         const combinedContext = moodCtx || null;
+        const activeStreamerVocab = streamerPhrases.length > 0 ? { streamer: streamerName, phrases: streamerPhrases } : null;
         raw = await streamResponse(apiMessages, char, (accumulated) => {
           // During streaming, show without [split] markers
           const preview = accumulated.replace(/\[split\]/gi, ' ').replace(/\n[ \t]*\n+/g, ' ').trimStart();
@@ -552,7 +594,7 @@ export default function HomePage() {
             updated[updated.length - 1] = { role: 'assistant', character: char, content: preview };
             return updated;
           });
-        }, username, trendingContext, combinedContext, userProfile);
+        }, username, trendingContext, combinedContext, userProfile, activeStreamerVocab);
 
         // Split into parts after streaming completes
         const parts = splitMessageContent(raw);
@@ -729,6 +771,17 @@ export default function HomePage() {
                 <path d="M15.5 15.5h5"/>
               </svg>
             </Link>
+            <button
+              onClick={() => setShowStreamerModal(true)}
+              className={`transition-colors p-1.5 ${streamerName ? 'text-purple-500 dark:text-purple-400' : 'text-gray-400 hover:text-purple-500 dark:hover:text-purple-300'}`}
+              title={streamerName ? `Streamer: ${streamerName}` : 'Streamer語彙を設定'}
+            >
+              {streamerName ? (
+                <span className="text-[10px] font-bold leading-none bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-300 rounded-full px-2 py-1">{streamerName}</span>
+              ) : (
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M15 10l4.553-2.069A1 1 0 0121 8.82v6.36a1 1 0 01-1.447.894L15 14M3 8a2 2 0 012-2h10a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/></svg>
+              )}
+            </button>
           </div>
 
           {/* Mobile hamburger */}
@@ -765,6 +818,10 @@ export default function HomePage() {
                 <button onClick={() => { generateProfile(); setShowMenu(false); }} disabled={generatingProfile} className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-blue-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-40">
                   <svg className={`w-3.5 h-3.5 ${userProfile ? 'text-green-400' : 'text-blue-400'}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
                   {userProfile ? 'プロファイル再生成' : 'プロファイル生成'}
+                </button>
+                <button onClick={() => { setShowStreamerModal(true); setShowMenu(false); }} className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-purple-50 dark:hover:bg-gray-700 transition-colors">
+                  <svg className={`w-3.5 h-3.5 ${streamerName ? 'text-purple-500' : 'text-gray-400'}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M15 10l4.553-2.069A1 1 0 0121 8.82v6.36a1 1 0 01-1.447.894L15 14M3 8a2 2 0 012-2h10a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/></svg>
+                  {streamerName ? `Streamer: ${streamerName}` : 'Streamer語彙'}
                 </button>
               </div>
             )}
@@ -831,6 +888,62 @@ export default function HomePage() {
           }}
           onClose={() => setShowSync(false)}
         />
+      )}
+
+      {/* Streamer vocab modal */}
+      {showStreamerModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-gray-800 shadow-2xl overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-gray-700">
+              <h2 className="font-bold text-gray-800 dark:text-gray-100 text-sm">Twitch Streamer 語彙</h2>
+              <button onClick={() => setShowStreamerModal(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-1">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <p className="text-xs text-gray-500 dark:text-gray-400">配信者名を入力すると、その配信者がよく使う言葉をMia・Mimiが会話の中で自然に使うようになります。</p>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={streamerInput}
+                  onChange={e => setStreamerInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') fetchStreamerVocab(streamerInput); }}
+                  placeholder="例: xQc, Pokimane, Ludwig..."
+                  className="flex-1 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-300"
+                />
+                <button
+                  onClick={() => fetchStreamerVocab(streamerInput)}
+                  disabled={fetchingStreamer || !streamerInput.trim()}
+                  className="rounded-xl bg-purple-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-purple-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {fetchingStreamer ? (
+                    <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                  ) : '取得'}
+                </button>
+              </div>
+              {streamerPhrases.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2">{streamerName} の語彙 ({streamerPhrases.length}件)</p>
+                  <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto">
+                    {streamerPhrases.map((p, i) => (
+                      <span key={i} className="rounded-full bg-purple-50 dark:bg-purple-900/30 border border-purple-200 dark:border-purple-700 px-2.5 py-1 text-xs text-purple-600 dark:text-purple-300">
+                        {p}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {streamerPhrases.length === 0 && streamerName && (
+                <p className="text-xs text-orange-500">語彙が見つかりませんでした。別の配信者名を試してください。</p>
+              )}
+              {streamerName && (
+                <button onClick={() => { clearStreamer(); setShowStreamerModal(false); }} className="w-full rounded-xl border border-red-200 dark:border-red-800 py-2 text-sm text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
+                  クリア
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Input */}
