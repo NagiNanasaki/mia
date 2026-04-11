@@ -139,13 +139,46 @@ function getStoredId(key: string): string {
   return id;
 }
 
+const SPLIT_MAX_CHARS = 120;
+
 function splitMessageContent(content: string): string[] {
-  const parts = content
-    .split(/[ \t]*\[split\][ \t]*|\n[ \t]*\n+/g)
-    .map((part) => part.trim())
+  // Step 1: split by explicit [split] markers
+  const byMarker = content
+    .split(/[ \t]*\[split\][ \t]*/gi)
+    .map((p) => p.trim())
     .filter(Boolean);
 
-  return parts.length > 0 ? parts : [content];
+  // Step 2: for each segment, if > SPLIT_MAX_CHARS, split at sentence boundaries
+  const result: string[] = [];
+  for (const segment of byMarker) {
+    if (segment.length <= SPLIT_MAX_CHARS) {
+      result.push(segment);
+      continue;
+    }
+    let remaining = segment;
+    while (remaining.length > SPLIT_MAX_CHARS) {
+      // Search for a sentence-ending in the first SPLIT_MAX_CHARS + 40 chars
+      const window = remaining.slice(0, SPLIT_MAX_CHARS + 40);
+      // Match: sentence-ending punctuation followed by whitespace (not inside a [...] marker)
+      const sentenceEnd = /[.!?。！？]\s+/g;
+      let lastMatch: { index: number; length: number } | null = null;
+      let m: RegExpExecArray | null;
+      while ((m = sentenceEnd.exec(window)) !== null) {
+        if (m.index > 20) lastMatch = { index: m.index, length: m[0].length };
+      }
+      if (lastMatch) {
+        const cut = lastMatch.index + lastMatch.length;
+        result.push(remaining.slice(0, cut).trim());
+        remaining = remaining.slice(cut).trim();
+      } else {
+        // No sentence boundary found — keep as-is
+        break;
+      }
+    }
+    if (remaining) result.push(remaining);
+  }
+
+  return result.length > 0 ? result : [content];
 }
 
 function normalizeMessages(messages: Message[]): Message[] {
@@ -561,10 +594,19 @@ export default function HomePage() {
 
     const buildContextNote = () => {
       if (roundResponses.length === 0) return undefined;
+
+      if (roundResponses.length === 1) {
+        // 2nd character: react to the 1st character's reply, NOT re-answer the user
+        const { char, content } = roundResponses[0];
+        const name = char === 'mia' ? 'Mia' : 'Mimi';
+        return `(${name} just replied: "${content}"\n\nYou're jumping in AFTER ${name} has already handled the user. Do NOT re-answer or repeat what they said. Instead: react to ${name}'s reply — agree, disagree, tease, escalate, go off on a tangent, or just drop a chaotic one-liner. This should feel like a real group chat, not two separate answers to the user.)`;
+      }
+
+      // 3rd+ characters: react to the ongoing conversation
       const lines = roundResponses
         .map(r => `${r.char === 'mia' ? 'Mia' : 'Mimi'}: "${r.content}"`)
         .join('\n');
-      return `(Group chat so far this turn:\n${lines}\n\nNow it's your turn — don't repeat what was already said, build on it.)`;
+      return `(Group chat so far:\n${lines}\n\nJump in naturally — react to what was just said, not the user's original message.)`;
     };
 
     // Helper: stream one character's response and persist it (handles [split])
@@ -647,10 +689,15 @@ export default function HomePage() {
     const first: 'mia' | 'mimi' = pickFirstCharacter(lastUserText);
     const second: 'mia' | 'mimi' = first === 'mia' ? 'mimi' : 'mia';
 
+    // 1〜2秒のランダム遅延（人間らしい間）
+    const relayDelay = () =>
+      new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 1000));
+
     // First character responds (no context yet)
     const { history: afterFirst } = await runCharacter(first, updatedMessages);
 
     // Second character responds (sees first's response via roundResponses)
+    await relayDelay();
     const { history: afterSecond } = await runCharacter(second, afterFirst);
 
     // Relay loop: allow either character to jump back in, including the same speaker twice in a row
@@ -666,6 +713,7 @@ export default function HomePage() {
           ? (lastChar === 'mia' ? 'mimi' : 'mia')
           : lastChar;
 
+      await relayDelay();
       const { history } = await runCharacter(currentChar, currentHistory);
       currentHistory = history;
       lastChar = currentChar;

@@ -2,6 +2,7 @@
 
 import { useState, useRef, KeyboardEvent } from 'react';
 import StampPicker from './StampPicker';
+import { STAMP_BY_NAME } from '@/lib/stamps';
 
 interface ChatInputProps {
   onSend: (message: string) => void;
@@ -11,6 +12,7 @@ interface ChatInputProps {
 export default function ChatInput({ onSend, disabled }: ChatInputProps) {
   const [input, setInput] = useState('');
   const [showStamps, setShowStamps] = useState(false);
+  const [previewStamp, setPreviewStamp] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -24,9 +26,18 @@ export default function ChatInput({ onSend, disabled }: ChatInputProps) {
     }
   };
 
+  // 1st tap: show preview
   const handleStampSelect = (stampName: string) => {
     if (disabled) return;
-    onSend(`[user-stamp:${stampName}]`);
+    setShowStamps(false);
+    setPreviewStamp(stampName);
+  };
+
+  // 2nd tap: send
+  const handlePreviewSend = () => {
+    if (!previewStamp || disabled) return;
+    onSend(`[user-stamp:${previewStamp}]`);
+    setPreviewStamp(null);
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -52,6 +63,38 @@ export default function ChatInput({ onSend, disabled }: ChatInputProps) {
           onClose={() => setShowStamps(false)}
         />
       )}
+
+      {/* Stamp preview overlay (2-tap to send) */}
+      {previewStamp && (() => {
+        const info = STAMP_BY_NAME[previewStamp];
+        if (!info) return null;
+        return (
+          <>
+            {/* Backdrop — tap to cancel */}
+            <div
+              className="fixed inset-0 z-40"
+              onClick={() => setPreviewStamp(null)}
+            />
+            {/* Preview card */}
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 z-50 mb-3 flex flex-col items-center gap-2">
+              <button
+                onClick={handlePreviewSend}
+                className="flex flex-col items-center gap-2 p-4 rounded-3xl bg-white dark:bg-gray-800 shadow-2xl border-2 border-purple-300 dark:border-purple-600 active:scale-95 transition-transform"
+                title="タップして送信"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={`/stamps/${info.file}`}
+                  alt={info.label}
+                  className="h-36 w-36 object-contain select-none"
+                  draggable={false}
+                />
+                <span className="text-xs text-purple-500 dark:text-purple-300 font-semibold">タップして送信</span>
+              </button>
+            </div>
+          </>
+        );
+      })()}
       <div className="flex items-end gap-2 bg-white dark:bg-gray-800 border border-purple-200 dark:border-gray-600 rounded-2xl p-3 shadow-sm focus-within:ring-2 focus-within:ring-purple-300 transition-all">
         {/* Stamp button */}
         <button
