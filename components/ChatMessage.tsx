@@ -235,13 +235,15 @@ export default function ChatMessage({ message, vocabOwnerId }: ChatMessageProps)
     }
   };
 
-  // Parse [img:url], [stamp:name] (AI emoji stamps), [user-stamp:name] (image stamps) markers
+  // Parse markers: [img:url], [stamp:name] (emoji), [sticker:name] (AI image), [user-stamp:name] (user image)
   const imgRegex = /\[img:(https?:\/\/[^\]]+)\]/g;
   const stampRegex = /\[stamp:\s*([a-zA-Z]+)\s*\]/g;
+  const stickerRegex = /\[sticker:\s*([a-zA-Z0-9]+)\s*\]/g;
   const userStampRegex = /\[user-stamp:\s*([a-zA-Z0-9]+)\s*\]/g;
   const images: string[] = [];
   const stamps: string[] = [];
-  const userStamps: string[] = [];
+  const stickers: string[] = [];   // AI image stickers
+  const userStamps: string[] = []; // user image stamps
 
   // Check if message is purely a user-stamp (no other content)
   const isUserStampOnly = isUser && /^\[user-stamp:[a-zA-Z0-9]+\]$/.test(message.content.trim());
@@ -249,11 +251,13 @@ export default function ChatMessage({ message, vocabOwnerId }: ChatMessageProps)
   const displayText = message.content
     .replace(imgRegex, (_, url: string) => { images.push(url); return ''; })
     .replace(stampRegex, (_, name: string) => { stamps.push(name.toLowerCase()); return ''; })
+    .replace(stickerRegex, (_, name: string) => { stickers.push(name); return ''; })
     .replace(userStampRegex, (_, name: string) => { userStamps.push(name); return ''; })
     .trimStart();
 
   const hasText = !!(displayText.trim() || images.length > 0);
   const hasStamps = stamps.length > 0;
+  const hasStickers = stickers.length > 0;
   const hasUserStamps = userStamps.length > 0;
 
   const isHint = message.character === 'hint';
@@ -309,6 +313,38 @@ export default function ChatMessage({ message, vocabOwnerId }: ChatMessageProps)
             })}
           </div>
           {!hasText && (
+            <span className="text-[10px] text-gray-400">{formatTime(message.created_at)}</span>
+          )}
+        </div>
+        {userAvatar}
+      </div>
+    )}
+
+    {/* AI image sticker row ([sticker:name]) */}
+    {hasStickers && (
+      <div className={`flex items-end gap-2 ${hasText || hasStamps ? 'mb-1' : 'mb-4'} ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
+        {avatar}
+        <div className={`flex flex-col gap-1 ${isUser ? 'items-end' : 'items-start'}`}>
+          {!isUser && char && (
+            <span className="text-[11px] font-semibold text-gray-500 px-1">{char.name}</span>
+          )}
+          <div className="flex flex-wrap gap-2">
+            {stickers.slice(0, 1).map((name, i) => {
+              const info = STAMP_BY_NAME[name];
+              if (!info) return null;
+              return (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  key={i}
+                  src={`/stamps/${info.file}`}
+                  alt={info.label}
+                  className="h-24 w-24 object-contain select-none"
+                  draggable={false}
+                />
+              );
+            })}
+          </div>
+          {!hasText && !hasStamps && (
             <span className="text-[10px] text-gray-400">{formatTime(message.created_at)}</span>
           )}
         </div>
