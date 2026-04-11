@@ -139,24 +139,423 @@ function getStoredId(key: string): string {
   return id;
 }
 
+const MOBILE_MAX_LINES = 3;
+const MOBILE_LINE_WIDTH_UNITS = 16;
+const SPLIT_MAX_VISUAL_UNITS = MOBILE_MAX_LINES * MOBILE_LINE_WIDTH_UNITS;
 const SPLIT_MAX_CHARS = 120;
+const MIN_SPLIT_RATIO = 0.65;
+const TARGET_SPLIT_RATIO = 0.86;
+const SPLIT_LOOKAHEAD_RATIO = 1.18;
 
-function splitMessageContent(content: string): string[] {
+type SplitBoundaryType = 'sentence' | 'newline' | 'strong' | 'comma' | 'space';
+
+const DANGLING_SPLIT_WORDS = new Set([
+  'a', 'an', 'the', 'this', 'that', 'these', 'those',
+  'my', 'your', 'our', 'their', 'his', 'her', 'its',
+  'some', 'any', 'no', 'each', 'every', 'either', 'neither', 'both', 'all',
+  'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten',
+  'first', 'second', 'third', 'last', 'next',
+  'few', 'many', 'more', 'most', 'less', 'least', 'another', 'other',
+  'instant', 'little', 'whole', 'entire', 'blue',
+  'and', 'or', 'but', 'so', 'because', 'if', 'when', 'while', 'though', 'although',
+  'unless', 'until', 'since', 'after', 'before', 'as',
+  'to', 'of', 'in', 'on', 'at', 'for', 'from', 'with', 'without', 'about', 'into',
+  'onto', 'over', 'under', 'between', 'through', 'around', 'across',
+]);
+
+const WORD_JOINER_HINTS = new Set([
+  'ago', 'later',
+  'ramen', 'anime', 'manga', 'story', 'arc', 'season', 'episode',
+  'time', 'series', 'archive',
+  'day', 'days', 'week', 'weeks', 'month', 'months', 'year', 'years',
+  'night', 'morning', 'evening',
+]);
+
+const CLAUSE_LEADING_WORDS = new Set([
+  'and', 'or', 'but', 'so', 'because', 'if', 'when', 'while', 'though', 'although',
+  'unless', 'until', 'since', 'after', 'before', 'as',
+]);
+
+const SUBJECT_PRONOUNS = new Set(['i', 'you', 'we', 'they', 'he', 'she', 'it']);
+const AUXILIARY_OR_LINKING_WORDS = new Set([
+  'am', 'are', 'is', 'was', 'were',
+  'do', 'does', 'did',
+  'have', 'has', 'had',
+  'can', 'could', 'will', 'would', 'should', 'shall', 'may', 'might', 'must',
+]);
+
+function getVisualUnits(text: string): number {
+  let units = 0;
+
+  for (const char of text) {
+    if (/\s/.test(char)) {
+      units += 0.4;
+    } else if (/[.!?,;:]/.test(char)) {
+      units += 0.5;
+    } else if (/[\u3040-\u30ff\u3400-\u9fff]/.test(char)) {
+      units += 1.8;
+    } else if (/[A-Z]/.test(char)) {
+      units += 1.05;
+    } else {
+      units += 1;
+    }
+  }
+
+  return units;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function findBestSplitIndex(segment: string): number | null {
+  let units = 0;
+  let sentenceBreak: number | null = null;
+  let softBreak: number | null = null;
+
+  for (let i = 0; i < segment.length; i++) {
+    const char = segment[i];
+    units += getVisualUnits(char);
+
+    if (units > SPLIT_MAX_VISUAL_UNITS * 1.2) {
+      break;
+    }
+
+    if (/[.!?。！？]/.test(char) && i >= 12) {
+      sentenceBreak = i + 1;
+    } else if ((/\s/.test(char) || /[,;:、，]/.test(char)) && i >= 12) {
+      softBreak = i + 1;
+    }
+
+    if (units >= SPLIT_MAX_VISUAL_UNITS) {
+      return sentenceBreak ?? softBreak ?? i + 1;
+    }
+  }
+
+  return sentenceBreak ?? softBreak;
+}
+
+function getSplitMaxVisualUnits(): number {
+  if (typeof window === 'undefined') return SPLIT_MAX_VISUAL_UNITS;
+
+  const width = window.innerWidth;
+  if (width <= 430) return 42;
+  if (width <= 640) return 48;
+  return 72;
+}
+
+function findHardSplitIndex(segment: string, maxUnits: number): number {
+  let units = 0;
+
+  for (let i = 0; i < segment.length; i++) {
+    units += getVisualUnits(segment[i]);
+    if (units >= maxUnits) {
+      return i + 1;
+    }
+  }
+
+  return segment.length;
+}
+
+function getSplitBoundaryType(char: string): SplitBoundaryType | null {
+  if (char === '\n') return 'newline';
+  /*
+  if (/[.!?縲ゑｼ・ｼ歉/.test(char)) return 'sentence';
+  if (/[;:縲・ｼ珪/.test(char)) return 'strong';
+  if (/[,縲・ｼ・]/.test(char)) return 'comma';
+  */
+  if (/[.!?\u3002\uff01\uff1f]/.test(char)) return 'sentence';
+  if (/[;:\uff1b\uff1a]/.test(char)) return 'strong';
+  if (/[,\u3001\uff0c]/.test(char)) return 'comma';
+  if (/\s/.test(char)) return 'space';
+  return null;
+}
+
+function getSplitBoundaryBonus(type: SplitBoundaryType): number {
+  switch (type) {
+    case 'sentence':
+      return 9;
+    case 'newline':
+      return 7;
+    case 'strong':
+      return 4;
+    case 'comma':
+      return 1.5;
+    case 'space':
+      return 0;
+    default:
+      return 0;
+  }
+}
+
+function normalizeBoundaryWord(word: string): string {
+  return word
+    .toLowerCase()
+    .replace(/^[^a-z0-9]+/i, '')
+    .replace(/[^a-z0-9]+$/i, '');
+}
+
+function getWordMatches(text: string): Array<{ word: string; index: number }> {
+  const matches = [...text.matchAll(/[A-Za-z][A-Za-z0-9'\u2019-]*/g)];
+  return matches.map((match) => ({ word: match[0], index: match.index ?? 0 }));
+}
+
+function getBoundaryContext(segment: string, boundaryIndex: number): {
+  leftWord: string;
+  previousLeftWord: string;
+  rightWord: string;
+} {
+  const leftMatches = getWordMatches(segment.slice(0, boundaryIndex));
+  const rightMatches = getWordMatches(segment.slice(boundaryIndex));
+
+  return {
+    leftWord: leftMatches[leftMatches.length - 1]?.word ?? '',
+    previousLeftWord: leftMatches[leftMatches.length - 2]?.word ?? '',
+    rightWord: rightMatches[0]?.word ?? '',
+  };
+}
+
+function shouldKeepWordsTogether(leftWord: string, rightWord: string): boolean {
+  const left = normalizeBoundaryWord(leftWord);
+  const right = normalizeBoundaryWord(rightWord);
+
+  if (!left || !right) return false;
+  if (DANGLING_SPLIT_WORDS.has(left)) return true;
+  if (WORD_JOINER_HINTS.has(right)) return true;
+  if (/^\d+$/.test(left)) return true;
+
+  // Avoid cutting between simple modifier+noun style pairs like
+  // "instant ramen" or "sleepy cat".
+  if (
+    /^[a-z][a-z'’-]*$/i.test(left) &&
+    /^[a-z][a-z'’-]*$/i.test(right) &&
+    /(?:y|ful|less|ous|ive|al|ish|ing|ed|ic)$/i.test(left)
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function getBoundaryPhraseScore(segment: string, boundaryIndex: number): number {
+  const { leftWord, previousLeftWord, rightWord } = getBoundaryContext(segment, boundaryIndex);
+  const left = normalizeBoundaryWord(leftWord);
+  const previousLeft = normalizeBoundaryWord(previousLeftWord);
+  const right = normalizeBoundaryWord(rightWord);
+
+  let score = 0;
+
+  if (shouldKeepWordsTogether(leftWord, rightWord)) {
+    score -= 16;
+  }
+
+  if (CLAUSE_LEADING_WORDS.has(left)) {
+    score -= 18;
+  }
+
+  if (
+    CLAUSE_LEADING_WORDS.has(previousLeft) &&
+    SUBJECT_PRONOUNS.has(left) &&
+    right &&
+    AUXILIARY_OR_LINKING_WORDS.has(right)
+  ) {
+    score -= 18;
+  }
+
+  if (SUBJECT_PRONOUNS.has(left) && AUXILIARY_OR_LINKING_WORDS.has(right)) {
+    score -= 7;
+  }
+
+  if (CLAUSE_LEADING_WORDS.has(right)) {
+    score += 2;
+  }
+
+  return score;
+}
+
+function tryShiftTrailingWords(left: string, right: string, maxUnits: number, wordCount: number): [string, string] | null {
+  const leftMatches = getWordMatches(left);
+  const rightMatches = getWordMatches(right);
+
+  if (leftMatches.length < wordCount || rightMatches.length === 0) return null;
+
+  const movingMatches = leftMatches.slice(-wordCount);
+  const movingWords = movingMatches.map((match) => match.word);
+  const rightFirstWord = rightMatches[0].word;
+  const normalizedMoving = movingWords.map(normalizeBoundaryWord);
+
+  const shouldShift =
+    (wordCount === 1 && shouldKeepWordsTogether(movingWords[0], rightFirstWord)) ||
+    (wordCount === 2 &&
+      CLAUSE_LEADING_WORDS.has(normalizedMoving[0]) &&
+      SUBJECT_PRONOUNS.has(normalizedMoving[1]));
+
+  if (!shouldShift) return null;
+
+  const movingStart = movingMatches[0].index;
+  const movingText = left.slice(movingStart).trim();
+  const newLeft = left.slice(0, movingStart).trim();
+  const newRight = `${movingText} ${right}`.trim();
+
+  if (!newLeft || !newRight) return null;
+
+  const isClauseShift = wordCount === 2 && CLAUSE_LEADING_WORDS.has(normalizedMoving[0]);
+  const minLeftUnits = isClauseShift ? maxUnits * 0.2 : maxUnits * 0.3;
+  const maxRightUnits = isClauseShift ? maxUnits * 1.22 : maxUnits * 1.16;
+
+  if (getVisualUnits(newLeft) < minLeftUnits) return null;
+  if (getVisualUnits(newRight) > maxRightUnits) return null;
+
+  return [newLeft, newRight];
+}
+
+function rebalanceAdjacentSplitChunks(left: string, right: string, maxUnits: number): [string, string] | null {
+  return (
+    tryShiftTrailingWords(left, right, maxUnits, 2) ??
+    tryShiftTrailingWords(left, right, maxUnits, 1)
+  );
+}
+
+function rebalanceSplitChunks(chunks: string[], maxUnits: number): string[] {
+  if (chunks.length <= 1) return chunks;
+
+  const adjusted = [...chunks];
+  for (let i = 0; i < adjusted.length - 1; i++) {
+    const rebalanced = rebalanceAdjacentSplitChunks(adjusted[i], adjusted[i + 1], maxUnits);
+    if (rebalanced) {
+      adjusted[i] = rebalanced[0];
+      adjusted[i + 1] = rebalanced[1];
+    }
+  }
+
+  return adjusted.filter(Boolean);
+}
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function findBestSplitIndexForMobile(segment: string, maxUnits: number): number | null {
+  let units = 0;
+  let sentenceBreak: number | null = null;
+  let softBreak: number | null = null;
+
+  for (let i = 0; i < segment.length; i++) {
+    const char = segment[i];
+    units += getVisualUnits(char);
+
+    if (units > maxUnits * 1.1) {
+      break;
+    }
+
+    if (/[.!?。！？]/.test(char) && i >= 10) {
+      sentenceBreak = i + 1;
+    } else if ((/\s/.test(char) || /[,;:、，]/.test(char)) && i >= 10) {
+      softBreak = i + 1;
+    }
+
+    if (units >= maxUnits) {
+      return sentenceBreak ?? softBreak ?? i + 1;
+    }
+  }
+
+  return sentenceBreak ?? softBreak;
+}
+
+function findBalancedSplitIndexForMobile(segment: string, maxUnits: number): number | null {
+  let units = 0;
+  let bestBreak: { index: number; score: number } | null = null;
+  const minUnits = maxUnits * MIN_SPLIT_RATIO;
+  const targetUnits = maxUnits * TARGET_SPLIT_RATIO;
+  const lookaheadUnits = maxUnits * SPLIT_LOOKAHEAD_RATIO;
+
+  for (let i = 0; i < segment.length; i++) {
+    const char = segment[i];
+    units += getVisualUnits(char);
+
+    if (units > lookaheadUnits) {
+      break;
+    }
+
+    const boundaryType = getSplitBoundaryType(char);
+    if (boundaryType && i >= 10 && units >= minUnits) {
+      const score =
+        getSplitBoundaryBonus(boundaryType) -
+        Math.abs(units - targetUnits) +
+        getBoundaryPhraseScore(segment, i + 1);
+      if (!bestBreak || score >= bestBreak.score) {
+        bestBreak = { index: i + 1, score };
+      }
+    }
+
+    if (units >= maxUnits && bestBreak) {
+      return bestBreak.index;
+    }
+  }
+
+  return bestBreak?.index ?? null;
+}
+
+const CONTENT_MARKER_REGEX = /(\[(?:img|stamp|sticker|user-stamp):[^\]]+\])/gi;
+const CONTENT_MARKER_ONLY_REGEX = /^\[(?:img|stamp|sticker|user-stamp):[^\]]+\]$/i;
+const SENTENCE_END_CHAR_REGEX = /[.!?\u3002\uff01\uff1f]/;
+const SENTENCE_TRAILING_CLOSER_REGEX = /["'\u2019\u201d)\]]/;
+
+function getSplitPartDelayMs(content: string): number {
+  const visibleText = content
+    .replace(CONTENT_MARKER_REGEX, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!visibleText) {
+    return 550 + Math.round(Math.random() * 250);
+  }
+
+  const wordCount = visibleText.split(' ').filter(Boolean).length;
+  const visualDelay = Math.min(1400, getVisualUnits(visibleText) * 28);
+  const wordDelay = Math.min(800, wordCount * 70);
+
+  return Math.round(Math.min(3200, 500 + visualDelay + wordDelay + Math.random() * 450));
+}
+
+function appendSplitTextSegments(segment: string, maxUnits: number, result: string[]) {
+  const trimmed = segment.trim();
+  if (!trimmed) return;
+
+  if (getVisualUnits(trimmed) <= maxUnits) {
+    result.push(trimmed);
+    return;
+  }
+
+  const localChunks: string[] = [];
+  let remaining = trimmed;
+  while (getVisualUnits(remaining) > maxUnits) {
+    const cut =
+      findBalancedSplitIndexForMobile(remaining, maxUnits) ??
+      findHardSplitIndex(remaining, maxUnits);
+    if (cut >= remaining.length) break;
+
+    const chunk = remaining.slice(0, cut).trim();
+    if (chunk) localChunks.push(chunk);
+    remaining = remaining.slice(cut).trim();
+  }
+
+  if (remaining) localChunks.push(remaining);
+  result.push(...rebalanceSplitChunks(localChunks, maxUnits));
+}
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function splitLegacyMessageContent(content: string): string[] {
   // Step 1: split by explicit [split] markers
   const byMarker = content
     .split(/[ \t]*\[split\][ \t]*/gi)
     .map((p) => p.trim())
     .filter(Boolean);
 
-  // Step 2: for each segment, if > SPLIT_MAX_CHARS, split at sentence boundaries
+  // Step 2: for each segment, estimate whether it would exceed about
+  // 3 short lines on mobile and split at natural boundaries when needed.
   const result: string[] = [];
   for (const segment of byMarker) {
-    if (segment.length <= SPLIT_MAX_CHARS) {
+    if (getVisualUnits(segment) <= SPLIT_MAX_VISUAL_UNITS) {
       result.push(segment);
       continue;
     }
     let remaining = segment;
-    while (remaining.length > SPLIT_MAX_CHARS) {
+    while (getVisualUnits(remaining) > SPLIT_MAX_VISUAL_UNITS) {
       // Search for a sentence-ending in the first SPLIT_MAX_CHARS + 40 chars
       const window = remaining.slice(0, SPLIT_MAX_CHARS + 40);
       // Match: sentence-ending punctuation followed by whitespace (not inside a [...] marker)
@@ -181,11 +580,125 @@ function splitMessageContent(content: string): string[] {
   return result.length > 0 ? result : [content];
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function splitMessageContentForMobile(content: string): string[] {
+  const maxUnits = getSplitMaxVisualUnits();
+  const byMarker = content
+    .split(/[ \t]*\[split\][ \t]*/gi)
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  const result: string[] = [];
+
+  for (const segment of byMarker) {
+    const chunks = segment
+      .split(CONTENT_MARKER_REGEX)
+      .map((part) => part.trim())
+      .filter(Boolean);
+
+    for (const chunk of chunks) {
+      if (/^\[(?:img|stamp|sticker|user-stamp):[^\]]+\]$/i.test(chunk)) {
+        result.push(chunk);
+        continue;
+      }
+
+      appendSplitTextSegments(chunk, maxUnits, result);
+    }
+  }
+
+  return result.length > 0 ? result : [content];
+}
+
+function pushTrimmedSplitChunk(result: string[], value: string) {
+  const trimmed = value.trim();
+  if (trimmed) result.push(trimmed);
+}
+
+function splitTextBySentenceOrNewlineBoundaries(segment: string): string[] {
+  const text = segment.replace(/\r/g, '').trim();
+  if (!text) return [];
+
+  const result: string[] = [];
+  let current = '';
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+
+    if (char === '\n') {
+      pushTrimmedSplitChunk(result, current);
+      current = '';
+
+      while (i + 1 < text.length && /\s/.test(text[i + 1])) {
+        i++;
+      }
+      continue;
+    }
+
+    current += char;
+
+    if (!SENTENCE_END_CHAR_REGEX.test(char)) {
+      continue;
+    }
+
+    let j = i + 1;
+    while (
+      j < text.length &&
+      (SENTENCE_END_CHAR_REGEX.test(text[j]) || SENTENCE_TRAILING_CLOSER_REGEX.test(text[j]))
+    ) {
+      current += text[j];
+      j++;
+    }
+
+    if (j >= text.length || /\s/.test(text[j])) {
+      pushTrimmedSplitChunk(result, current);
+      current = '';
+
+      while (j < text.length && /\s/.test(text[j])) {
+        j++;
+      }
+
+      i = j - 1;
+    } else {
+      i = j - 1;
+    }
+  }
+
+  pushTrimmedSplitChunk(result, current);
+  return result.length > 0 ? result : [text];
+}
+
+function splitMessageContentForMobileNatural(content: string): string[] {
+  const byMarker = content
+    .split(/[ \t]*\[split\][ \t]*/gi)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  const result: string[] = [];
+
+  for (const segment of byMarker) {
+    const chunks = segment
+      .split(CONTENT_MARKER_REGEX)
+      .map((part) => part.trim())
+      .filter(Boolean);
+
+    for (const chunk of chunks) {
+      if (CONTENT_MARKER_ONLY_REGEX.test(chunk)) {
+        result.push(chunk);
+        continue;
+      }
+
+      result.push(...splitTextBySentenceOrNewlineBoundaries(chunk));
+    }
+  }
+
+  return result.length > 0 ? result : [content];
+}
+
 function normalizeMessages(messages: Message[]): Message[] {
   return messages.flatMap((message) => {
     if (message.role !== 'assistant') return [message];
 
-    const parts = splitMessageContent(message.content);
+    const parts = splitMessageContentForMobileNatural(message.content);
     if (parts.length <= 1) return [message];
 
     return parts.map((part) => ({
@@ -297,6 +810,7 @@ export default function HomePage() {
   const [showSync, setShowSync] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
+  const [pendingCharacter, setPendingCharacter] = useState<'mia' | 'mimi' | null>(null);
   const sessionIdRef = useRef<string>('');
   const vocabOwnerIdRef = useRef<string>('');
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -304,6 +818,7 @@ export default function HomePage() {
   const menuRef = useRef<HTMLDivElement>(null);
   const messagesRef = useRef<Message[]>([]);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingCharacterRef = useRef<'mia' | 'mimi' | null>(null);
 
   useEffect(() => {
     const init = async () => {
@@ -421,13 +936,17 @@ export default function HomePage() {
   }, []);
 
   const refreshConversation = () => {
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     const newId = uuidv4();
     localStorage.setItem('mia_session_id', newId);
     localStorage.removeItem('mia_mood');
     sessionIdRef.current = newId;
+    pendingCharacterRef.current = null;
     setMessages(getInitialMessages());
     setSuggestions(DEFAULT_SUGGESTIONS);
     setCharacterMood(DEFAULT_MOOD);
+    setIsThinking(false);
+    setPendingCharacter(null);
     setShowRefreshMenu(false);
   };
 
@@ -561,6 +1080,10 @@ export default function HomePage() {
       content: userText,
       created_at: new Date().toISOString(),
     };
+    const firstResponder = pickFirstCharacter(userText);
+    pendingCharacterRef.current = firstResponder;
+    setPendingCharacter(firstResponder);
+
     setMessages(prev => {
       const historyBase = isInitialMessages(prev) ? [] : prev;
       return [...historyBase, userMessage];
@@ -576,8 +1099,39 @@ export default function HomePage() {
     }, 5000);
   };
 
+  // Auto grammar check: called after relay finishes, appends hint-kun message if errors found
+  const runGrammarCheck = async (userText: string) => {
+    // Skip /hint commands and messages with no English letters
+    if (userText.trim().startsWith('/hint')) return;
+    if (!/[a-zA-Z]/.test(userText)) return;
+
+    try {
+      const res = await fetch('/api/grammar-check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: userText }),
+      });
+      if (!res.ok) return;
+      const { hasError, correction } = await res.json();
+      if (hasError && correction) {
+        const hintMsg: Message = {
+          role: 'assistant',
+          character: 'hint',
+          content: correction,
+          created_at: new Date().toISOString(),
+        };
+        setMessages((prev) => [...prev, hintMsg]);
+      }
+    } catch {
+      // silent fail — grammar check is best-effort
+    }
+  };
+
   // Called when the debounce timer fires — runs the full AI relay
   const triggerAIResponse = async (lastUserText: string) => {
+    const firstResponder = pendingCharacterRef.current ?? pickFirstCharacter(lastUserText);
+    pendingCharacterRef.current = null;
+    setPendingCharacter(null);
     setIsThinking(false);
     setIsStreaming(true);
 
@@ -619,9 +1173,10 @@ export default function HomePage() {
       setMessages([...currentMessages, placeholder]);
 
       let raw = '';
+      let responseMessages: Message[] = [];
       try {
         const contextNote = buildContextNote();
-        const apiMessages = buildApiMessages(updatedMessages, char, contextNote);
+        const apiMessages = buildApiMessages(currentMessages, char, contextNote);
         const moodCtx = buildMoodContext(characterMood, char);
         const combinedContext = moodCtx || null;
         raw = await streamResponse(apiMessages, char, (accumulated) => {
@@ -635,58 +1190,71 @@ export default function HomePage() {
         }, username, trendingContext, combinedContext, userProfile);
 
         // Split into parts after streaming completes
-        const parts = splitMessageContent(raw);
+        const parts = splitMessageContentForMobileNatural(raw);
         const now = new Date().toISOString();
 
         if (parts.length <= 1) {
+          const message: Message = { role: 'assistant', character: char, content: raw, created_at: now };
           // No split — normal single bubble
           setMessages((prev) => {
             const updated = [...prev];
-            updated[updated.length - 1] = { role: 'assistant', character: char, content: raw, created_at: now };
+            updated[updated.length - 1] = message;
             return updated;
           });
+          responseMessages = [message];
           await saveMessage({ role: 'assistant', content: raw, character: char });
         } else {
+          const firstMessage: Message = { role: 'assistant', character: char, content: parts[0], created_at: now };
           // Replace streaming bubble with first part, then add rest with delay
           setMessages((prev) => {
             const updated = [...prev];
-            updated[updated.length - 1] = { role: 'assistant', character: char, content: parts[0], created_at: now };
+            updated[updated.length - 1] = firstMessage;
             return updated;
           });
+          responseMessages = [firstMessage];
           await saveMessage({ role: 'assistant', content: parts[0], character: char });
 
           for (let i = 1; i < parts.length; i++) {
-            await new Promise(resolve => setTimeout(resolve, 500));
+            setMessages((prev) => [...prev, { role: 'assistant', character: char, content: '' }]);
+            await new Promise(resolve => setTimeout(resolve, getSplitPartDelayMs(parts[i])));
             const partNow = new Date().toISOString();
-            setMessages((prev) => [...prev, { role: 'assistant', character: char, content: parts[i], created_at: partNow }]);
+            const partMessage: Message = { role: 'assistant', character: char, content: parts[i], created_at: partNow };
+            setMessages((prev) => {
+              const updated = [...prev];
+              updated[updated.length - 1] = partMessage;
+              return updated;
+            });
+            responseMessages.push(partMessage);
             await saveMessage({ role: 'assistant', content: parts[i], character: char });
           }
         }
       } catch (err) {
         console.error(err);
         raw = ERRORS[char];
+        responseMessages = [{ role: 'assistant', character: char, content: raw }];
         setMessages((prev) => {
           const updated = [...prev];
-          updated[updated.length - 1] = { role: 'assistant', character: char, content: raw };
+          updated[updated.length - 1] = responseMessages[0];
           return updated;
         });
       }
 
-      roundResponses.push({ char, content: raw });
+      const visibleResponse = responseMessages.map((message) => message.content).join('\n') || raw;
+      roundResponses.push({ char, content: visibleResponse });
 
       // 感情状態を更新して localStorage に保存
       setCharacterMood(prev => {
-        const next = applyMoodUpdate(prev, char, raw);
+        const next = applyMoodUpdate(prev, char, visibleResponse);
         localStorage.setItem('mia_mood', JSON.stringify(next));
         return next;
       });
 
-      const history: Message[] = [...currentMessages, { role: 'assistant', character: char, content: raw }];
+      const history: Message[] = [...currentMessages, ...responseMessages];
       return { response: raw, history };
     };
 
     // Decide who goes first based on the last message text
-    const first: 'mia' | 'mimi' = pickFirstCharacter(lastUserText);
+    const first: 'mia' | 'mimi' = firstResponder;
     const second: 'mia' | 'mimi' = first === 'mia' ? 'mimi' : 'mia';
 
     // 1〜2秒のランダム遅延（人間らしい間）
@@ -724,7 +1292,10 @@ export default function HomePage() {
     setStreamingCharacter(null);
 
     // Fetch contextual suggestions based on updated conversation
-    fetchSuggestions(updatedMessages);
+    fetchSuggestions(currentHistory);
+
+    // Auto grammar check — fire-and-forget after relay
+    void runGrammarCheck(lastUserText);
   };
 
   return (
@@ -877,15 +1448,14 @@ export default function HomePage() {
             {/* Thinking indicator (debounce wait — input still enabled) */}
             {isThinking && !isStreaming && (
               <div className="flex items-end gap-2 mb-4">
-                <div className="flex -space-x-2">
-                  <div className="flex-shrink-0 w-8 h-8 rounded-full overflow-hidden shadow-sm border-2 border-white z-10">
-                    <CatAvatar variant="mia" size={32} />
-                  </div>
-                  <div className="flex-shrink-0 w-8 h-8 rounded-full overflow-hidden shadow-sm border-2 border-white">
-                    <CatAvatar variant="mimi" size={32} />
-                  </div>
+                <div className="flex-shrink-0 w-8 h-8 rounded-full overflow-hidden shadow-sm">
+                  <CatAvatar variant={pendingCharacter ?? 'mia'} size={32} />
                 </div>
-                <div className="rounded-2xl rounded-bl-sm px-4 py-3 shadow-sm border bg-gray-100 border-gray-200 dark:bg-gray-700 dark:border-gray-600">
+                <div className={`rounded-2xl rounded-bl-sm px-4 py-3 shadow-sm border ${
+                  (pendingCharacter ?? 'mia') === 'mia'
+                    ? 'bg-purple-100 border-purple-200'
+                    : 'bg-orange-100 border-orange-200'
+                }`}>
                   <div className="flex gap-1 items-center h-5">
                     <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce [animation-delay:0ms]" />
                     <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce [animation-delay:150ms]" />
