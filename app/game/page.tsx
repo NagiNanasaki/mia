@@ -12,10 +12,8 @@ const EXP_TABLE: Record<GameQuestion['type'], number> = {
   reorder: 25,
 };
 
-// Relaxed level table (roughly half the original thresholds)
 const LEVEL_TABLE = [0, 50, 125, 225, 350, 500, 675, 875, 1100, 1350];
 
-// --- Random character comments (no API call) ---
 const COMMENTS = {
   mia: {
     question: [
@@ -83,7 +81,6 @@ function pickComment(
   const template = arr[Math.floor(Math.random() * arr.length)];
   return answer ? template.replace('{answer}', answer) : template;
 }
-// --- end comments ---
 
 type GamePhase = 'loading' | 'start' | 'playing' | 'result' | 'complete';
 type GameMode = 'toeic' | 'translate';
@@ -108,7 +105,7 @@ function getQuestionTypeLabel(type: GameQuestion['type']): string {
 function getQuestionTypeDescription(type: GameQuestion['type']): string {
   if (type === 'ja_select') return 'Choose the correct Japanese meaning';
   if (type === 'en_select') return 'Choose the correct English word';
-  return 'Fill in the blank';
+  return 'Tap words to fill the blanks';
 }
 
 const DIFFICULTY_OPTIONS: { value: Difficulty | 'all'; label: string; color: string }[] = [
@@ -138,6 +135,10 @@ export default function GamePage() {
   const [leveledUp, setLeveledUp] = useState(false);
   const [savingExp, setSavingExp] = useState(false);
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+
+  // Multi-blank reorder state
+  const [blankInputs, setBlankInputs] = useState<(string | null)[]>([]);
+  const [remainingOptions, setRemainingOptions] = useState<string[]>([]);
 
   // Game settings
   const [difficulty, setDifficulty] = useState<Difficulty | 'all'>('all');
@@ -209,6 +210,16 @@ export default function GamePage() {
     setSelectedOption(null);
     setSaveState('idle');
     setComment(pickComment(question.character, 'question'));
+
+    // Init multi-blank state for reorder
+    if (question.type === 'reorder' && question.blanks) {
+      setBlankInputs(new Array(question.blanks.length).fill(null));
+      setRemainingOptions([...(question.options ?? [])]);
+    } else {
+      setBlankInputs([]);
+      setRemainingOptions([]);
+    }
+
     setPhase('playing');
   }
 
@@ -245,16 +256,17 @@ export default function GamePage() {
 
   async function handleDifficultyChange(newDiff: Difficulty | 'all') {
     setDifficulty(newDiff);
-    if (gameMode === 'translate') return; // difficulty doesn't apply to translate mode
+    if (gameMode === 'translate') return;
     setPhase('loading');
     await loadQuestions(vocabOwnerId, 'toeic', newDiff);
     setPhase('start');
   }
 
+  // ja_select / en_select: single-click answer
   function handleSelectAnswer(option: string) {
     if (phase !== 'playing' || selectedOption !== null) return;
     const question = questions[currentIdx];
-    if (!question) return;
+    if (!question || question.type === 'reorder') return;
 
     const correct = option === question.answer;
     setSelectedOption(option);
@@ -268,6 +280,56 @@ export default function GamePage() {
 
     const answerLabel = question.answer ?? question.word;
     setComment(pickComment(question.character, correct ? 'correct' : 'wrong', answerLabel));
+    setPhase('result');
+  }
+
+  // reorder: place word chip into next empty slot
+  function handleReorderOptionClick(option: string) {
+    if (phase !== 'playing') return;
+    const firstEmpty = blankInputs.findIndex((b) => b === null);
+    if (firstEmpty === -1) return;
+    const newBlanks = [...blankInputs];
+    newBlanks[firstEmpty] = option;
+    setBlankInputs(newBlanks);
+    setRemainingOptions((prev) => {
+      const idx = prev.indexOf(option);
+      if (idx === -1) return prev;
+      return [...prev.slice(0, idx), ...prev.slice(idx + 1)];
+    });
+  }
+
+  // reorder: return word from slot back to chips
+  function handleReorderSlotClick(slotIdx: number) {
+    if (phase !== 'playing') return;
+    const word = blankInputs[slotIdx];
+    if (!word) return;
+    const newBlanks = [...blankInputs];
+    newBlanks[slotIdx] = null;
+    setBlankInputs(newBlanks);
+    setRemainingOptions((prev) => [...prev, word]);
+  }
+
+  // reorder: submit answer when all blanks filled
+  function handleCheckReorder() {
+    if (phase !== 'playing') return;
+    const question = questions[currentIdx];
+    if (!question || question.type !== 'reorder' || !question.blanks) return;
+    if (blankInputs.some((b) => b === null)) return;
+
+    const correct = question.blanks.every(
+      (b, i) => blankInputs[i]?.toLowerCase() === b.toLowerCase()
+    );
+
+    if (correct) {
+      setScore((prev) => prev + 1);
+      const gained = EXP_TABLE['reorder'];
+      totalExpRef.current += gained;
+      setTotalExpGained(totalExpRef.current);
+    }
+
+    const answerLabel = question.blanks.join(' / ');
+    setComment(pickComment(question.character, correct ? 'correct' : 'wrong', answerLabel));
+    setSelectedOption(correct ? '__correct__' : '__wrong__');
     setPhase('result');
   }
 
@@ -308,6 +370,8 @@ export default function GamePage() {
     setComment('');
     setSaveState('idle');
     setNotEnough(false);
+    setBlankInputs([]);
+    setRemainingOptions([]);
     await Promise.all([fetchProgress(vocabOwnerId), loadQuestions(vocabOwnerId, gameMode, difficulty)]);
     setPhase('start');
   }
@@ -372,7 +436,6 @@ export default function GamePage() {
         </header>
 
         <div className="flex flex-1 flex-col items-center justify-center gap-5 px-6 text-center overflow-y-auto py-6">
-          {/* Level display */}
           <div>
             <div className="text-5xl font-black text-purple-600 dark:text-purple-400">Lv.{progress.level}</div>
             <p className="mt-1 text-sm text-gray-500">EXP {progress.exp} / {progress.nextLevelExp}</p>
@@ -381,7 +444,6 @@ export default function GamePage() {
             </div>
           </div>
 
-          {/* Characters */}
           <div className="flex items-end gap-6">
             {(['mia', 'mimi'] as const).map((character) => (
               <div key={character} className="flex flex-col items-center gap-1">
@@ -393,7 +455,6 @@ export default function GamePage() {
             ))}
           </div>
 
-          {/* Mode selector */}
           <div className="w-full max-w-xs space-y-2">
             <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Mode</p>
             <div className="flex gap-2">
@@ -429,7 +490,6 @@ export default function GamePage() {
             )}
           </div>
 
-          {/* Difficulty selector (TOEIC mode only) */}
           {gameMode === 'toeic' && (
             <div className="w-full max-w-xs space-y-2">
               <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Difficulty</p>
@@ -457,7 +517,6 @@ export default function GamePage() {
             </div>
           )}
 
-          {/* EXP info */}
           <div className="w-full max-w-xs">
             {gameMode === 'toeic' && (
               <div className="flex justify-around text-center text-xs text-gray-500 mb-3">
@@ -558,6 +617,10 @@ export default function GamePage() {
 
   if (!question) return null;
 
+  const isReorder = question.type === 'reorder';
+  const allBlanksFilled = isReorder && blankInputs.every((b) => b !== null);
+  const reorderCorrect = isReorder && phase === 'result' && selectedOption === '__correct__';
+
   return (
     <div className="flex h-screen flex-col bg-gradient-to-br from-purple-50 via-pink-50 to-indigo-50 dark:from-gray-900 dark:via-gray-900 dark:to-gray-800">
       <header className="flex items-center gap-3 border-b border-purple-100 bg-white/80 px-5 py-3 backdrop-blur-sm dark:border-gray-700 dark:bg-gray-800/90">
@@ -583,7 +646,7 @@ export default function GamePage() {
         <div className="h-full bg-purple-400 transition-all duration-500" style={{ width: `${expBarWidth}%` }} />
       </div>
 
-      <div className="mx-auto flex w-full max-w-lg flex-1 flex-col gap-5 overflow-y-auto px-5 py-5">
+      <div className="mx-auto flex w-full max-w-lg flex-1 flex-col gap-4 overflow-y-auto px-5 py-4">
         <div className="flex items-center justify-between">
           <span className="rounded-full bg-purple-100 px-3 py-1 text-xs font-semibold text-purple-500 dark:bg-purple-900/30">
             {getQuestionTypeLabel(question.type)}
@@ -640,56 +703,107 @@ export default function GamePage() {
             </div>
           )}
 
+          {/* Multi-blank sentence with interactive slots */}
           {question.type === 'reorder' && (
-            <div className="space-y-2 text-center">
-              <p className="text-base font-semibold leading-relaxed text-gray-800 dark:text-gray-100">
-                {question.sentence?.split('___').map((part, i, arr) => (
-                  <span key={i}>
-                    {part}
-                    {i < arr.length - 1 && (
-                      <span className="mx-1 inline-block min-w-[64px] border-b-2 border-purple-500 align-bottom text-purple-400">
-                        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-                      </span>
-                    )}
-                  </span>
-                ))}
+            <div className="space-y-3">
+              <p className="text-base font-semibold leading-loose text-gray-800 dark:text-gray-100 text-center">
+                {question.sentence?.split('___').map((part, i, arr) => {
+                  const filled = blankInputs[i];
+                  const isCorrectSlot = phase === 'result' && question.blanks
+                    ? filled?.toLowerCase() === question.blanks[i]?.toLowerCase()
+                    : null;
+                  return (
+                    <span key={i}>
+                      {part}
+                      {i < arr.length - 1 && (
+                        <button
+                          onClick={() => handleReorderSlotClick(i)}
+                          disabled={phase === 'result'}
+                          className={`mx-1 inline-block min-w-[72px] rounded-lg border-b-2 px-2 py-0.5 text-sm font-bold align-bottom transition-all ${
+                            phase === 'result'
+                              ? isCorrectSlot
+                                ? 'border-green-400 bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
+                                : 'border-red-400 bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
+                              : filled
+                                ? 'border-purple-400 bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-300 cursor-pointer'
+                                : 'border-gray-300 bg-gray-50 text-transparent dark:border-gray-600 dark:bg-gray-700 cursor-default'
+                          }`}
+                        >
+                          {filled ?? '\u00A0\u00A0\u00A0\u00A0'}
+                        </button>
+                      )}
+                    </span>
+                  );
+                })}
               </p>
-              <p className="text-sm text-gray-500 dark:text-gray-400">{question.sentenceTranslation}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400 text-center">{question.sentenceTranslation}</p>
+
+              {/* Show correct answers in result when wrong */}
+              {phase === 'result' && !reorderCorrect && question.blanks && (
+                <p className="text-xs text-center text-green-600 dark:text-green-400 font-semibold">
+                  ✓ {question.blanks.join(' / ')}
+                </p>
+              )}
             </div>
           )}
         </div>
 
-        {/* Answer options */}
-        <div className="grid grid-cols-2 gap-3">
-          {(question.options ?? []).map((option) => {
-            let style =
-              'border-gray-200 bg-white text-gray-800 hover:bg-purple-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 dark:hover:bg-gray-600';
+        {/* Answer options — grid for ja/en_select, chips for reorder */}
+        {!isReorder && (
+          <div className="grid grid-cols-2 gap-3">
+            {(question.options ?? []).map((option) => {
+              let style =
+                'border-gray-200 bg-white text-gray-800 hover:bg-purple-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 dark:hover:bg-gray-600';
 
-            if (phase === 'result') {
-              if (option === question.answer) {
-                style =
-                  'border-green-400 bg-green-100 text-green-800 dark:border-green-600 dark:bg-green-900/30 dark:text-green-200';
-              } else if (option === selectedOption) {
-                style =
-                  'border-red-400 bg-red-100 text-red-800 dark:border-red-600 dark:bg-red-900/30 dark:text-red-200';
-              } else {
-                style =
-                  'border-gray-200 bg-white text-gray-400 opacity-60 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-500';
+              if (phase === 'result') {
+                if (option === question.answer) {
+                  style = 'border-green-400 bg-green-100 text-green-800 dark:border-green-600 dark:bg-green-900/30 dark:text-green-200';
+                } else if (option === selectedOption) {
+                  style = 'border-red-400 bg-red-100 text-red-800 dark:border-red-600 dark:bg-red-900/30 dark:text-red-200';
+                } else {
+                  style = 'border-gray-200 bg-white text-gray-400 opacity-60 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-500';
+                }
               }
-            }
 
-            return (
+              return (
+                <button
+                  key={option}
+                  onClick={() => handleSelectAnswer(option)}
+                  disabled={phase !== 'playing'}
+                  className={`rounded-xl border px-3 py-4 text-sm font-medium shadow-sm transition-all ${style}`}
+                >
+                  {option}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Reorder word chips */}
+        {isReorder && phase === 'playing' && (
+          <div className="flex flex-wrap gap-2 justify-center">
+            {remainingOptions.map((option, i) => (
               <button
-                key={option}
-                onClick={() => handleSelectAnswer(option)}
-                disabled={phase !== 'playing'}
-                className={`rounded-xl border px-3 py-4 text-sm font-medium shadow-sm transition-all ${style}`}
+                key={`${option}-${i}`}
+                onClick={() => handleReorderOptionClick(option)}
+                className="rounded-xl border border-purple-200 bg-white px-4 py-2 text-sm font-semibold text-purple-700 shadow-sm transition-all hover:bg-purple-50 active:scale-95 dark:border-purple-700 dark:bg-gray-700 dark:text-purple-300"
               >
                 {option}
               </button>
-            );
-          })}
-        </div>
+            ))}
+          </div>
+        )}
+
+        {/* Reorder check button */}
+        {isReorder && phase === 'playing' && (
+          <button
+            onClick={handleCheckReorder}
+            disabled={!allBlanksFilled}
+            className="w-full rounded-2xl bg-indigo-500 py-3 font-bold text-white shadow-md transition-all hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-30 active:scale-95"
+          >
+            Check
+          </button>
+        )}
 
         {phase === 'result' && (
           <button

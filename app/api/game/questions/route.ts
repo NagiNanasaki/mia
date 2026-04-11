@@ -20,9 +20,10 @@ export type GameQuestion = {
   character: 'mia' | 'mimi';
   options?: string[];
   answer?: string;
-  // for reorder (fill-in-the-blank)
-  sentence?: string;          // English sentence with ___ blank
+  // for reorder (fill-in-the-blank with 2 blanks)
+  sentence?: string;          // English sentence with ___ blanks
   sentenceTranslation?: string;
+  blanks?: string[];          // correct words for each blank in order
 };
 
 function shuffle<T>(arr: T[]): T[] {
@@ -52,20 +53,16 @@ function pickFallbackDistractors(
   return Array.from(new Set(mapped)).slice(0, 3);
 }
 
-function buildFallbackSentence(word: string): string {
-  return `We should use ${word} carefully today.`;
+function buildFallbackBlankSentence(
+  word: string,
+  secondWord: string
+): { sentence: string; blanks: string[] } {
+  const sentence = `We should ___ this ___ carefully today.`;
+  return { sentence, blanks: [word, secondWord] };
 }
 
 function buildFallbackSentenceTranslation(word: string, meaning: string): string {
   return `今日は「${word}（${meaning}）」を注意して使うべきです。`;
-}
-
-function buildBlankSentence(sentence: string, word: string): string {
-  // Replace first occurrence (case-insensitive word boundary match)
-  const regex = new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
-  const result = sentence.replace(regex, '___');
-  if (result !== sentence) return result;
-  return sentence.replace(new RegExp(word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), '___');
 }
 
 export async function GET(req: Request) {
@@ -79,52 +76,9 @@ export async function GET(req: Request) {
     return handleTranslateMode(vocabOwnerId);
   }
 
-  // ── TOEIC mode ──
-
-  // Fetch user vocabulary words from Supabase
-  const userVocabWords = new Set<string>();
-  if (vocabOwnerId) {
-    try {
-      const { data } = await supabase
-        .from('vocabulary')
-        .select('phrase')
-        .eq('session_id', vocabOwnerId);
-      if (data) {
-        for (const row of data) {
-          if (row.phrase) userVocabWords.add(row.phrase.toLowerCase().trim());
-        }
-      }
-    } catch {
-      // ignore, fall back to TOEIC only
-    }
-  }
-
-  // 難易度でフィルタリングされた単語プールを取得
+  // ── TOEIC mode: 難易度プールからランダムに5問 ──
   const difficultyPool = getByDifficulty(difficultyParam);
-
-  // Build priority pool: difficulty pool の中でユーザーの単語帳と重なるもの
-  const toeicByLower = new Map(difficultyPool.map((w) => [w.word.toLowerCase(), w]));
-  const priorityWords = shuffle(
-    [...userVocabWords]
-      .map((w) => toeicByLower.get(w))
-      .filter((w): w is (typeof TOEIC_WORDS)[number] => !!w)
-  );
-  const priorityKeys = new Set(priorityWords.map((w) => w.word.toLowerCase()));
-
-  // Fill remaining slots from the difficulty pool
-  const remaining = shuffle(difficultyPool.filter((w) => !priorityKeys.has(w.word.toLowerCase())));
-  const combined = [...priorityWords, ...remaining];
-
-  const seen = new Set<string>();
-  const pool: { word: string; translation: string }[] = [];
-  for (const item of combined) {
-    const key = item.word.toLowerCase();
-    if (!seen.has(key)) {
-      seen.add(key);
-      pool.push(item);
-    }
-    if (pool.length >= 10) break;
-  }
+  const pool = shuffle(difficultyPool).slice(0, 10);
   const selected = pool.slice(0, 5);
 
   return buildQuestions(selected, pool);
@@ -156,14 +110,13 @@ async function handleTranslateMode(vocabOwnerId: string): Promise<Response> {
     return Response.json({ notEnough: true, questions: [] });
   }
 
-  // 重複除去してシャッフル
   const unique = Array.from(
     new Map(translateWords.map((w) => [w.word.toLowerCase(), w])).values()
   );
   const pool = shuffle(unique).slice(0, 10);
   const selected = pool.slice(0, 5);
 
-  // translate モードは ja_select / en_select のみ（reorderはフレーズに向かない場合あり）
+  // translate モードは ja_select / en_select のみ
   const types: QuestionType[] = shuffle([
     'ja_select', 'en_select', 'ja_select', 'en_select', 'ja_select',
   ]) as QuestionType[];
@@ -179,7 +132,6 @@ async function buildQuestions(
 ): Promise<Response> {
   const chars: ('mia' | 'mimi')[] = ['mia', 'mimi', 'mia', 'mimi', 'mia'];
 
-  // Assign question types
   const types: QuestionType[] = fixedTypes
     ?? (shuffle([...QUESTION_TYPES, ...QUESTION_TYPES]).slice(0, 5) as QuestionType[]);
 
@@ -195,7 +147,11 @@ async function buildQuestions(
 For each item, generate the required data based on the type:
 - "ja_select": 3 wrong Japanese translations as distractors (plausible but clearly wrong)
 - "en_select": 3 wrong English words as distractors (similar register, plausible but wrong)
-- "reorder": a natural English sentence (6-9 words) that uses the EXACT word form as given. Also provide 3 wrong English words as fill-in-the-blank distractors. Provide a natural Japanese translation of the full sentence.
+- "reorder": a natural English sentence (8-12 words) with EXACTLY 2 blanks (___). One blank is for the given word, the other blank is for a common English word that fits naturally (adjective, verb, or adverb). Provide:
+  - "sentence": the English sentence with exactly 2 ___ placeholders
+  - "blanks": array of exactly 2 strings — the correct word for each blank in left-to-right order
+  - "distractors": 3 wrong English word options (plausible substitutes)
+  - "sentenceTranslation": natural Japanese translation of the full sentence (with blank words filled in)
 
 Items:
 ${JSON.stringify(wordList, null, 2)}
@@ -206,14 +162,15 @@ Format:
   {
     "index": 0,
     "distractors": ["wrong1", "wrong2", "wrong3"],
-    "sentence": "Full English sentence using the exact word (reorder type only).",
-    "sentenceTranslation": "その英文全体の自然な日本語訳"
+    "sentence": "She ___ the report ___ before the deadline.",
+    "blanks": ["submitted", "early"],
+    "sentenceTranslation": "彼女は締め切り前にレポートを早めに提出した。"
   }
 ]`;
 
   const msg = await client.messages.create({
     model: 'claude-haiku-4-5',
-    max_tokens: 1200,
+    max_tokens: 1500,
     messages: [{ role: 'user', content: prompt }],
   });
 
@@ -222,7 +179,13 @@ Format:
     .map((b) => b.text)
     .join('');
 
-  let generated: { index: number; distractors: string[]; sentence?: string; sentenceTranslation?: string }[] = [];
+  let generated: {
+    index: number;
+    distractors: string[];
+    sentence?: string;
+    blanks?: string[];
+    sentenceTranslation?: string;
+  }[] = [];
   try {
     const match = raw.match(/\[[\s\S]*\]/);
     if (match) generated = JSON.parse(match[0]);
@@ -236,16 +199,33 @@ Format:
     const gen = generated.find((g) => g.index === i);
 
     if (type === 'reorder') {
-      const rawSentence = (gen?.sentence ?? buildFallbackSentence(item.word)).trim();
+      // Validate that Claude returned 2 blanks
+      const rawSentence = (gen?.sentence ?? '').trim();
+      const genBlanks = Array.isArray(gen?.blanks) && gen!.blanks.length === 2 ? gen!.blanks : null;
+      const blankCount = (rawSentence.match(/___/g) ?? []).length;
+
+      let sentence: string;
+      let blanks: string[];
+
+      if (rawSentence && blankCount === 2 && genBlanks) {
+        sentence = rawSentence;
+        blanks = genBlanks;
+      } else {
+        // Fallback: pick a second word from pool
+        const secondWord = pool.find(p => p.word.toLowerCase() !== item.word.toLowerCase())?.word ?? 'carefully';
+        const fallback = buildFallbackBlankSentence(item.word, secondWord);
+        sentence = fallback.sentence;
+        blanks = fallback.blanks;
+      }
+
       const sentenceTranslation =
         gen?.sentenceTranslation?.trim() || buildFallbackSentenceTranslation(item.word, item.translation);
-      const blankSentence = buildBlankSentence(rawSentence, item.word);
 
       const genDistractors = Array.from(new Set((gen?.distractors ?? []).filter(Boolean))).filter(
-        (d) => d.toLowerCase() !== item.word.toLowerCase()
+        (d) => !blanks.map(b => b.toLowerCase()).includes(d.toLowerCase())
       );
       const fallbackDistractors = shuffle(pool)
-        .filter((p) => p.word.toLowerCase() !== item.word.toLowerCase())
+        .filter((p) => !blanks.map(b => b.toLowerCase()).includes(p.word.toLowerCase()))
         .map((p) => p.word);
       const distractors = Array.from(new Set([...genDistractors, ...fallbackDistractors])).slice(0, 3);
 
@@ -254,9 +234,10 @@ Format:
         word: item.word,
         meaning: item.translation,
         character,
-        sentence: blankSentence,
+        sentence,
         sentenceTranslation,
-        options: shuffle([item.word, ...distractors]),
+        blanks,
+        options: shuffle([...blanks, ...distractors]),
         answer: item.word,
       };
     }

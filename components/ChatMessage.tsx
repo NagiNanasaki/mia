@@ -4,6 +4,7 @@ import { useState, useRef } from 'react';
 import CatAvatar from './CatAvatar';
 import Stamp from './Stamp';
 import VocabSelectModal, { type VocabCandidate } from './VocabSelectModal';
+import { STAMP_BY_NAME } from '@/lib/stamps';
 
 export interface Message {
   role: 'user' | 'assistant';
@@ -234,20 +235,26 @@ export default function ChatMessage({ message, vocabOwnerId }: ChatMessageProps)
     }
   };
 
-  // Parse [img:url] and [stamp:name] markers out of content
+  // Parse [img:url], [stamp:name] (AI emoji stamps), [user-stamp:name] (image stamps) markers
   const imgRegex = /\[img:(https?:\/\/[^\]]+)\]/g;
   const stampRegex = /\[stamp:\s*([a-zA-Z]+)\s*\]/g;
+  const userStampRegex = /\[user-stamp:\s*([a-zA-Z0-9]+)\s*\]/g;
   const images: string[] = [];
   const stamps: string[] = [];
+  const userStamps: string[] = [];
+
+  // Check if message is purely a user-stamp (no other content)
+  const isUserStampOnly = isUser && /^\[user-stamp:[a-zA-Z0-9]+\]$/.test(message.content.trim());
+
   const displayText = message.content
     .replace(imgRegex, (_, url: string) => { images.push(url); return ''; })
     .replace(stampRegex, (_, name: string) => { stamps.push(name.toLowerCase()); return ''; })
+    .replace(userStampRegex, (_, name: string) => { userStamps.push(name); return ''; })
     .trimStart();
-
-  if (stamps.length > 0) console.log('[Stamp] detected:', stamps, '| raw:', message.content.slice(0, 100));
 
   const hasText = !!(displayText.trim() || images.length > 0);
   const hasStamps = stamps.length > 0;
+  const hasUserStamps = userStamps.length > 0;
 
   const isHint = message.character === 'hint';
 
@@ -280,7 +287,36 @@ export default function ChatMessage({ message, vocabOwnerId }: ChatMessageProps)
       />
     )}
 
-    {/* Stamp row — independent message when stamps exist */}
+    {/* User image stamp (LINE-style) */}
+    {hasUserStamps && (
+      <div className={`flex items-end gap-2 ${hasText ? 'mb-1' : 'mb-4'} ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
+        {avatar}
+        <div className={`flex flex-col gap-1 ${isUser ? 'items-end' : 'items-start'}`}>
+          <div className="flex flex-wrap gap-2">
+            {userStamps.slice(0, 1).map((name, i) => {
+              const info = STAMP_BY_NAME[name];
+              if (!info) return null;
+              return (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  key={i}
+                  src={`/stamps/${info.file}`}
+                  alt={info.label}
+                  className="h-24 w-24 object-contain select-none"
+                  draggable={false}
+                />
+              );
+            })}
+          </div>
+          {!hasText && (
+            <span className="text-[10px] text-gray-400">{formatTime(message.created_at)}</span>
+          )}
+        </div>
+        {userAvatar}
+      </div>
+    )}
+
+    {/* AI emoji stamp row */}
     {hasStamps && (
       <div className={`flex items-end gap-2 ${hasText ? 'mb-1' : 'mb-4'} ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
         {avatar}
@@ -300,8 +336,8 @@ export default function ChatMessage({ message, vocabOwnerId }: ChatMessageProps)
       </div>
     )}
 
-    {/* Text / image row */}
-    {hasText && (
+    {/* Text / image row (skip if message was purely a user-stamp) */}
+    {hasText && !isUserStampOnly && (
       <div className={`flex items-end gap-2 mb-4 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
         {avatar}
         <div className={`flex flex-col gap-1 max-w-[75%] ${isUser ? 'items-end' : 'items-start'}`}>
