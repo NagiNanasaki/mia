@@ -130,10 +130,15 @@ async function buildQuestions(
   pool: { word: string; translation: string }[],
   fixedTypes?: QuestionType[]
 ): Promise<Response> {
-  const chars: ('mia' | 'mimi')[] = ['mia', 'mimi', 'mia', 'mimi', 'mia'];
+  const chars: ('mia' | 'mimi')[] = shuffle(['mia', 'mimi', 'mia', 'mimi', 'mia']) as ('mia' | 'mimi')[];
 
-  const types: QuestionType[] = fixedTypes
-    ?? (shuffle([...QUESTION_TYPES, ...QUESTION_TYPES]).slice(0, 5) as QuestionType[]);
+  // Pick types: each appears at least once, no adjacent duplicates guaranteed.
+  // Shuffle the 3 types → a(×1), b(×2), c(×2). Pattern: [b,c,a,b,c] ensures no adjacent same.
+  const types: QuestionType[] = (() => {
+    if (fixedTypes) return fixedTypes;
+    const [a, b, c] = shuffle([...QUESTION_TYPES]) as QuestionType[];
+    return [b, c, a, b, c];
+  })();
 
   const wordList = selected.map((w, i) => ({
     index: i,

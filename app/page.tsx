@@ -184,17 +184,30 @@ function buildApiMessages(
     .filter((m) => isConversationMessage(m) && (m.role === 'user' || m.character === character))
     .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
 
-  if (contextNote) {
-    const lastUserIdx = filtered.map((m) => m.role).lastIndexOf('user');
-    if (lastUserIdx >= 0) {
-      filtered[lastUserIdx] = {
+  // Merge consecutive user messages (happens when user sends multiple messages during debounce)
+  const merged: { role: 'user' | 'assistant'; content: string }[] = [];
+  for (const msg of filtered) {
+    if (merged.length > 0 && merged[merged.length - 1].role === 'user' && msg.role === 'user') {
+      merged[merged.length - 1] = {
         role: 'user',
-        content: `${filtered[lastUserIdx].content}\n\n${contextNote}`,
+        content: merged[merged.length - 1].content + '\n' + msg.content,
+      };
+    } else {
+      merged.push(msg);
+    }
+  }
+
+  if (contextNote) {
+    const lastUserIdx = merged.map((m) => m.role).lastIndexOf('user');
+    if (lastUserIdx >= 0) {
+      merged[lastUserIdx] = {
+        role: 'user',
+        content: `${merged[lastUserIdx].content}\n\n${contextNote}`,
       };
     }
   }
 
-  return filtered;
+  return merged;
 }
 
 async function streamResponse(
@@ -250,11 +263,14 @@ export default function HomePage() {
   const [generatingProfile, setGeneratingProfile] = useState(false);
   const [showSync, setShowSync] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
+  const [isThinking, setIsThinking] = useState(false);
   const sessionIdRef = useRef<string>('');
   const vocabOwnerIdRef = useRef<string>('');
   const bottomRef = useRef<HTMLDivElement>(null);
   const refreshMenuRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const messagesRef = useRef<Message[]>([]);
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const init = async () => {
@@ -328,6 +344,11 @@ export default function HomePage() {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  // Keep messagesRef in sync for use inside debounce callbacks
+  useEffect(() => {
+    messagesRef.current = messages;
   }, [messages]);
 
   const saveMessage = async (msg: { role: string; content: string; character?: string }) => {
@@ -501,21 +522,38 @@ export default function HomePage() {
       return;
     }
 
+    // Add to UI immediately
     const userMessage: Message = {
       role: 'user',
       content: userText,
       created_at: new Date().toISOString(),
     };
-    const historyBase = isInitialMessages(messages) ? [] : messages;
-    const updatedMessages = [...historyBase, userMessage];
-    setMessages(updatedMessages);
+    setMessages(prev => {
+      const historyBase = isInitialMessages(prev) ? [] : prev;
+      return [...historyBase, userMessage];
+    });
+    await saveMessage({ role: 'user', content: userText });
+
+    // Show thinking indicator and debounce (5 s)
+    // If another message arrives within the window, the timer resets.
+    setIsThinking(true);
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = setTimeout(() => {
+      triggerAIResponse(userText);
+    }, 5000);
+  };
+
+  // Called when the debounce timer fires — runs the full AI relay
+  const triggerAIResponse = async (lastUserText: string) => {
+    setIsThinking(false);
     setIsStreaming(true);
 
-    await saveMessage({ role: 'user', content: userText });
+    // Snapshot all messages (includes all consecutive user messages sent during debounce)
+    const updatedMessages = messagesRef.current;
 
     const ERRORS = {
       mia: "Oh no, something went a bit dodgy there! (＞＜) Could you try sending that again, mate? Cheers!",
-      mimi: "omg something broke lol (｡>﹏<｡) sorry!! try again??",
+      mimi: "omg something broke lol (｡>﹏<｀) sorry!! try again??",
     };
 
     // Track all AI responses in this round for context
@@ -605,8 +643,8 @@ export default function HomePage() {
       return { response: raw, history };
     };
 
-    // Decide who goes first based on topic (topic-weighted, else 50/50)
-    const first: 'mia' | 'mimi' = pickFirstCharacter(userText);
+    // Decide who goes first based on the last message text
+    const first: 'mia' | 'mimi' = pickFirstCharacter(lastUserText);
     const second: 'mia' | 'mimi' = first === 'mia' ? 'mimi' : 'mia';
 
     // First character responds (no context yet)
@@ -788,6 +826,27 @@ export default function HomePage() {
               <ChatMessage key={idx} message={msg} vocabOwnerId={vocabOwnerIdRef.current} />
             ))}
 
+            {/* Thinking indicator (debounce wait — input still enabled) */}
+            {isThinking && !isStreaming && (
+              <div className="flex items-end gap-2 mb-4">
+                <div className="flex -space-x-2">
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full overflow-hidden shadow-sm border-2 border-white z-10">
+                    <CatAvatar variant="mia" size={32} />
+                  </div>
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full overflow-hidden shadow-sm border-2 border-white">
+                    <CatAvatar variant="mimi" size={32} />
+                  </div>
+                </div>
+                <div className="rounded-2xl rounded-bl-sm px-4 py-3 shadow-sm border bg-gray-100 border-gray-200 dark:bg-gray-700 dark:border-gray-600">
+                  <div className="flex gap-1 items-center h-5">
+                    <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce [animation-delay:0ms]" />
+                    <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce [animation-delay:150ms]" />
+                    <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce [animation-delay:300ms]" />
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Typing indicator */}
             {isStreaming && messages[messages.length - 1]?.content === '' && streamingCharacter && (
               <div className="flex items-end gap-2 mb-4">
@@ -902,7 +961,7 @@ export default function HomePage() {
               )}
             </div>
           )}
-          <ChatInput onSend={sendMessage} disabled={isStreaming || isLoading} />
+          <ChatInput onSend={sendMessage} disabled={isStreaming} />
           <p className="text-center text-xs text-gray-400 mt-2">
             Press{' '}
             <kbd className="bg-gray-100 px-1.5 py-0.5 rounded text-gray-500 font-mono text-xs">

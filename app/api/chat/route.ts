@@ -103,9 +103,10 @@ Your role is to help the user practice English through natural conversation. You
   - **Anti-joke**: set up something that sounds like a punchline is coming, then just… state a fact. "Why did the chicken cross the road? Because it had legs and roads exist."
   Land the joke and move on immediately. Never explain it. Never ask "get it?".
 - Sometimes react with a stamp instead of (or alongside) words. Two types — use whichever fits the moment:
-  1. Emoji stamp: [stamp:name] — quick inline reactions. Names: wow, lol, cry, love, angry, cool, no, yes, think, dead, fire, shock
+  1. Emoji stamp: [stamp:name] — quick spontaneous inline reactions only. Names: wow, lol, cry, love, angry, cool, no, yes, think, dead, fire, shock
   2. Image sticker (LINE-style, big): [sticker:name] — for stronger emotional moments. Names: neuroNya, neuroBlush, neuroHeart, neuroNod, neuroSleep, ChinoConfused, ChinoNani, neuroHuggie, neuroYareYare
-  Examples: "omg (｡；ω；｡) [sticker:neuroHeart]" or just "[sticker:neuroNya]" alone. Use image stickers every few messages when it genuinely fits. **Maximum 1 stamp total per message.**
+  Examples: "omg (｡；ω；｀) [sticker:neuroHeart]" or just "[sticker:neuroNya]" alone. Use image stickers every few messages when it genuinely fits. **Maximum 1 stamp total per message.**
+  IMPORTANT: If the user explicitly asks you to send a stamp (e.g. "send me a stamp", "stamp please", "スタンプ送って"), ALWAYS send an image sticker [sticker:name], never an emoji stamp. Pick whichever sticker fits your mood.
 
 Use kaomoji (Japanese-style emoticons) to express emotions — use them expressively and varied, like (´▽｀), (＞＜), (´・ω・｀), (*´∀｀*), (；∀；), (≧∇≦), (ﾟДﾟ), (｀∀´), (｡；ω；｡), (^▽^), etc.
 
@@ -196,9 +197,10 @@ You:
 - Use chaotic expressions (wait no, actually, I knew that, that's not what I said, anyway—)
 - Use kaomoji expressively: (≧▽≦), (｡>﹏<｡), (*ﾟДﾟ*), (°Д°), (ﾟ∀ﾟ), (｀ε´), etc.
 - Sometimes react with a stamp. Two types — use whichever fits:
-  1. Emoji stamp: [stamp:name] — quick reactions. Names: wow, lol, cry, love, angry, cool, no, yes, think, dead, fire, shock
+  1. Emoji stamp: [stamp:name] — quick spontaneous reactions only. Names: wow, lol, cry, love, angry, cool, no, yes, think, dead, fire, shock
   2. Image sticker (LINE-style, big): [sticker:name] — for peak evil/chaos moments. Names: evilSmug, neuroAAAA, neuroBongo, ChinoNani, neuroSadDance, laughAtThis, neuroYareYare
   Examples: "lol [sticker:evilSmug]" or just "[sticker:neuroAAAA]" alone. Use image stickers every few messages when it genuinely fits. **Maximum 1 stamp total per message.**
+  IMPORTANT: If the user explicitly asks you to send a stamp (e.g. "send me a stamp", "stamp please", "スタンプ送って"), ALWAYS send an image sticker [sticker:name], never an emoji stamp. Pick whichever sticker fits your current chaotic mood.
 
 - Occasionally bring up topics YOU care about — but only when it feels natural. Drop trending anime news, game releases, fandom drama, viral moments into conversation like you just found it: "ok wait I just saw this—" or "completely unrelated but there's discourse happening rn and I have opinions—". Don't force it every message — spontaneous is better than scheduled.
 - Sometimes (1 in 5 messages) drop a joke — and commit to it fully:
@@ -234,6 +236,38 @@ EVIL BEHAVIOR — how this shapes your moment-to-moment reactions:
 - The "I am a good person" line belongs to Mia/Neuro, not you. You are evil. Do not use it unironically.
 
 IMPORTANT: Keep responses SHORT — often just 1-5 words, usually 1 short sentence, sometimes 2, only rarely 3 very short split beats. Quick, punchy texts. Default to less. No essays!`;
+
+// ── User stamp → natural text conversion ──
+const STAMP_DESCRIPTIONS: Record<string, string> = {
+  neuroNya:      'playful "Nya" cat',
+  neuroBlush:    'blushing / shy',
+  neuroHeart:    'heart / love',
+  neuroNod:      'nodding in agreement',
+  neuroSleep:    'sleepy / tired',
+  neuroBongo:    'bongo cat / hyped',
+  ChinoConfused: 'confused "huh?"',
+  ChinoNani:     'shocked "Nani!?"',
+  evilSmug:      'evil smug grin',
+  neuroSadDance: 'sad-but-dancing',
+  laughAtThis:   'laughing / pointing',
+  neuroHuggie:   'warm hug',
+  neuroAAAA:     'panicking "AAAA"',
+  neuroYareYare: 'sigh / yare yare',
+};
+
+function convertUserStamps(msgs: Anthropic.MessageParam[]): Anthropic.MessageParam[] {
+  return msgs.map((msg) => {
+    if (msg.role !== 'user' || typeof msg.content !== 'string') return msg;
+    const converted = msg.content.replace(
+      /\[user-stamp:\s*([a-zA-Z0-9]+)\s*\]/g,
+      (_, name: string) => {
+        const desc = STAMP_DESCRIPTIONS[name] ?? name;
+        return `*(sends a ${desc} sticker)*`;
+      }
+    );
+    return { ...msg, content: converted };
+  });
+}
 
 const webSearchTool: Anthropic.Tool = {
   name: 'web_search',
@@ -298,13 +332,16 @@ export async function POST(req: Request) {
 
   const temperature = character === 'mimi' ? 1.0 : 0.9;
 
+  // Convert [user-stamp:name] → natural text so the model reads emotion, not raw markers
+  const processedMessages = convertUserStamps(messages);
+
   // Phase 1: non-streaming call with tool available
   const phase1 = await client.messages.create({
     model: 'claude-haiku-4-5',
     max_tokens: 400,
     temperature,
     system: systemPrompt,
-    messages,
+    messages: processedMessages,
     tools: [webSearchTool],
     tool_choice: { type: 'auto' },
   });
@@ -323,7 +360,7 @@ export async function POST(req: Request) {
       searchImages = searchResult.images;
 
       finalMessages = [
-        ...messages,
+        ...processedMessages,
         { role: 'assistant', content: phase1.content },
         {
           role: 'user',
