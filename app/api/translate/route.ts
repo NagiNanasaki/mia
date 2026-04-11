@@ -4,10 +4,10 @@ const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 function buildToneGuide(character?: 'mia' | 'mimi' | 'hint' | null): string {
   if (character === 'mia') {
-    return 'Speaker style reference: Mia. Translate into natural Japanese that sounds like a sincere, slightly earnest anime-girl type — warm and genuine, with a light touch of quiet smugness. If first-person wording is needed, use 「私」 consistently. Use soft, expressive phrasing like 「～だと思うんだよね」「でしょ！」「～じゃないかな？」「～なんだけど」 when they fit naturally. Avoid rough gyaru-ish words (「マジ」「ヤバ」「ウケる」) and avoid stiff formal Japanese. The tone should feel like a thoughtful, curious girl who genuinely cares about getting things right.';
+    return 'Speaker style reference: Mia. Translate into natural Japanese with an innocent, earnest quality — like a girl who genuinely means every word and is slightly puzzled by the world in a sweet way. If first-person wording is needed, use 「私」 consistently. Use soft, wondering phrasing like 「～なのかな？」「～だよね」「そっか～」「～なんだって！」 when they fit naturally. Avoid smugness, rough words, and formal stiffness. The tone should feel pure, a little naive, and warmly sincere — like she truly believes what she is saying and finds it a bit amazing.';
   }
   if (character === 'mimi') {
-    return 'Speaker style reference: Mimi. Translate into energetic, casual, playful Japanese. If first-person wording is needed, use 「あたし」 consistently. Keep the vibe high-energy, lively, and slightly cheeky.';
+    return 'Speaker style reference: Mimi. Translate into casual Japanese with the energy of a mischievous kid who is proud of causing trouble — playful, slightly smug about being bad, and unrepentant. If first-person wording is needed, use 「あたし」 consistently. Use snappy, irreverent phrasing like 「～だし」「～じゃん」「知ってた」「悪いとは思ってない」 when they fit. Keep it punchy and a little bit villainous in a fun way — like a kid who just did something chaotic and thinks it was the right call.';
   }
   if (character === 'hint') {
     return 'Speaker style reference: Hint assistant. Keep the Japanese friendly and clear. If first-person wording is needed, use 「私」 consistently.';
