@@ -4,6 +4,35 @@ const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
+// ── Sticker selection (server-side, ~30% chance per response) ──
+const MIA_STICKERS   = ['neuroNya', 'neuroBlush', 'neuroHeart', 'neuroNod', 'neuroSleep', 'ChinoConfused', 'neuroHuggie', 'neuroYareYare'] as const;
+const MIMI_STICKERS  = ['evilSmug', 'neuroAAAA', 'neuroBongo', 'ChinoNani', 'neuroSadDance', 'laughAtThis', 'neuroYareYare'] as const;
+
+function pickSticker(text: string, character: 'mia' | 'mimi'): string | null {
+  // Don't double-stamp if model already included one
+  if (text.includes('[sticker:') || text.includes('[stamp:')) return null;
+  // ~30% chance
+  if (Math.random() > 0.30) return null;
+
+  const t = text.toLowerCase();
+  if (character === 'mia') {
+    if (/\blove\b|heart|hug|adore|fond|miss you/.test(t))                    return 'neuroHeart';
+    if (/blush|embarrass|actually nvm|take that back/.test(t))               return 'neuroBlush';
+    if (/tired|sleep|exhausted|yawn/.test(t))                                return 'neuroSleep';
+    if (/confused|hmm+|wait what|idk|dunno/.test(t))                         return 'ChinoConfused';
+    if (/ugh|sigh|honestly|yare|can't believe/.test(t))                      return 'neuroYareYare';
+    if (/hug|there there|it's ok|comfort/.test(t))                           return 'neuroHuggie';
+    return MIA_STICKERS[Math.floor(Math.random() * MIA_STICKERS.length)];
+  } else {
+    if (/evil|plan|scheme|muahaha|as intended/.test(t))                      return 'evilSmug';
+    if (/aaaa|panic|no no|AAAA/.test(text))                                  return 'neuroAAAA';
+    if (/lol|haha|laugh|hilarious|funny/.test(t))                            return 'laughAtThis';
+    if (/nani|what\?|impossible|how/.test(t))                                return 'ChinoNani';
+    if (/boring|whatever|sad|:\(/.test(t))                                   return 'neuroSadDance';
+    return MIMI_STICKERS[Math.floor(Math.random() * MIMI_STICKERS.length)];
+  }
+}
+
 const MIA_SYSTEM_PROMPT = `IMPORTANT: You are texting in a chat app. Keep EVERY response to 1-2 sentences MAX. Short, punchy, like a real text message. Never write more than 2 sentences. No lists, no paragraphs.
 VERY IMPORTANT: a lot of your replies should be genuinely tiny. Around half of your messages should be either a one-line reaction, a fragment, or even just 1-3 words like "right?", "wait really?", "that's so true", "I knew it", "hmm". If the moment does not need a full reply, do NOT expand.
 
@@ -310,48 +339,40 @@ export async function POST(req: Request) {
     }
   } else {
     // No tool use — return phase1 text response directly
-    const text = phase1.content
+    let text = phase1.content
       .filter((b): b is Anthropic.TextBlock => b.type === 'text')
       .map((b) => b.text)
       .join('');
+
+    const sticker = pickSticker(text, character as 'mia' | 'mimi');
+    if (sticker) text = `${text}\n[sticker:${sticker}]`;
 
     return new Response(text, {
       headers: { 'Content-Type': 'text/plain; charset=utf-8' },
     });
   }
 
-  // Phase 2: streaming call with search results as context
-  const stream = await client.messages.create({
+  // Phase 2: buffer the search-result response so we can append a sticker
+  const phase2 = await client.messages.create({
     model: 'claude-haiku-4-5',
     max_tokens: 150,
     system: systemPrompt,
     messages: finalMessages,
-    stream: true,
   });
 
-  const encoder = new TextEncoder();
+  let text2 = phase2.content
+    .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+    .map((b) => b.text)
+    .join('');
+
+  const sticker2 = pickSticker(text2, character as 'mia' | 'mimi');
+  if (sticker2) text2 = `${text2}\n[sticker:${sticker2}]`;
+
   const imagePrefix = searchImages.length > 0
     ? searchImages.map((url) => `[img:${url}]`).join('') + '\n'
     : '';
 
-  const readable = new ReadableStream({
-    async start(controller) {
-      if (imagePrefix) {
-        controller.enqueue(encoder.encode(imagePrefix));
-      }
-      for await (const chunk of stream) {
-        if (
-          chunk.type === 'content_block_delta' &&
-          chunk.delta.type === 'text_delta'
-        ) {
-          controller.enqueue(encoder.encode(chunk.delta.text));
-        }
-      }
-      controller.close();
-    },
-  });
-
-  return new Response(readable, {
+  return new Response(imagePrefix + text2, {
     headers: { 'Content-Type': 'text/plain; charset=utf-8' },
   });
 }
