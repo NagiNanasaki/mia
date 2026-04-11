@@ -15,19 +15,24 @@ export async function POST(req: Request) {
 
   // Save mode: items + sessionId provided
   if (body.items && body.sessionId) {
-    const { items, sessionId } = body as {
+    const { items, sessionId, source } = body as {
       items: { phrase: string; translation: string }[];
       sessionId: string;
+      source?: string;
     };
     if (!items.length) return Response.json({ saved: 0 });
 
-    const { error } = await supabase.from('vocabulary').insert(
-      items.map(item => ({
+    const rows = items.map(item => {
+      const row: Record<string, string> = {
         session_id: sessionId,
         phrase: item.phrase,
         translation: item.translation,
-      }))
-    );
+      };
+      if (source) row.source = source;
+      return row;
+    });
+
+    const { error } = await supabase.from('vocabulary').insert(rows);
     if (error) {
       console.error('Supabase insert error:', error);
       return Response.json({ error: error.message }, { status: 500 });

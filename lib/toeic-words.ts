@@ -474,3 +474,79 @@ export const TOEIC_WORDS: VocabItem[] = [
   { word: "subject to", translation: "〜に従う・〜次第の" },
   { word: "in light of", translation: "〜を考慮して・〜に照らして" },
 ];
+
+// ---------------------------------------------------------------------------
+// Difficulty helpers
+// ---------------------------------------------------------------------------
+
+export type Difficulty = 'easy' | 'medium' | 'hard';
+
+/** Travel/Transport + Phrasal verbs → easy */
+const EASY_WORDS = new Set<string>([
+  // Travel / Transport
+  'accommodation', 'boarding', 'carry-on', 'check-in', 'commute', 'depart',
+  'destination', 'domestic', 'fare', 'itinerary', 'layover', 'overseas',
+  'refund', 'reservation', 'round trip', 'terminal', 'transit', 'visa',
+  'customs', 'express', 'charter', 'currency exchange', 'baggage claim',
+  'connecting flight', 'excess baggage', 'shuttle', 'boarding pass',
+  'departure lounge', 'complimentary', 'amenity',
+  // Phrasal verbs / Idioms / Collocations
+  'account for', 'ahead of schedule', 'back up', 'bear in mind', 'break down',
+  'bring about', 'bring up', 'carry out', 'catch up with', 'come across',
+  'come up with', 'count on', 'cut back on', 'deal with', 'draw up',
+  'find out', 'follow up', 'get along with', 'give up', 'hand in',
+  'hold off', 'in advance', 'in charge of', 'in terms of', 'keep track of',
+  'kick off', 'lay off', 'lead to', 'look forward to', 'look into',
+  'make progress', 'meet the deadline', 'narrow down', 'on behalf of',
+  'out of stock', 'pay attention to', 'pick up', 'point out', 'put off',
+  'reach out', 'run out of', 'set up', 'show up', 'sort out', 'speed up',
+  'stand out', 'take advantage of', 'take care of', 'take into account',
+  'take over', 'team up', 'touch base', 'turn down', 'turn out', 'up to date',
+  'work out', 'wrap up', 'due to', 'regardless of', 'in addition to',
+  'as a result', 'on the other hand', 'take place', 'prior to', 'in order to',
+  'according to', 'as soon as possible', 'at first glance', 'in the meantime',
+  'once in a while', 'needless to say', 'fall behind', 'figure out',
+  'get started', 'go ahead', 'go over', 'keep up with', 'make sure',
+  'move forward', 'rule out', 'sum up', 'turn around', 'walk through',
+  'cut corners', 'get the ball rolling', 'hit the ground running',
+  'on the same page', 'think outside the box', 'touch base with',
+  'bring to light', 'call it a day', 'go the extra mile', 'in the loop',
+  'keep in mind', 'state of the art', 'under the circumstances', 'worth while',
+  "at one's disposal", 'with regard to', 'subject to', 'in light of',
+]);
+
+/** Finance/Economics + Legal/Contracts → hard */
+const HARD_WORDS = new Set<string>([
+  // Finance / Economics
+  'budget', 'capital', 'commission', 'deficit', 'dividend', 'expenditure',
+  'fiscal', 'forecast', 'inflation', 'invoice', 'liability', 'monetary',
+  'quarterly', 'reimburse', 'revenue', 'shareholder', 'subsidy', 'surplus',
+  'transaction', 'withdraw', 'audit', 'equity', 'liquidity', 'portfolio',
+  'premium', 'recession', 'cash flow', 'interest rate', 'profit margin',
+  'break even', 'gross profit', 'net income', 'payroll', 'depreciation',
+  'collateral', 'deductible', 'appraise', 'amortize', 'hedge', 'fiscal year',
+  'outstanding', 'quote', 'venture capital', 'stock option', 'balance sheet',
+  // Legal / Contracts
+  'agreement', 'arbitration', 'binding', 'breach', 'clause', 'comply',
+  'confidential', 'consent', 'copyright', 'dispute', 'enforce', 'expire',
+  'liable', 'obligation', 'patent', 'penalty', 'provision', 'terminate',
+  'trademark', 'warranty', 'indemnify', 'jurisdiction', 'waive', 'deed',
+  'litigation', 'sanction', 'subcontract', 'disclosure', 'proprietary',
+  'non-disclosure',
+]);
+
+export function getDifficulty(word: string): Difficulty {
+  const w = word.toLowerCase();
+  if (EASY_WORDS.has(w)) return 'easy';
+  if (HARD_WORDS.has(w)) return 'hard';
+  return 'medium';
+}
+
+/** 重複を除去して難易度でフィルタリングした単語プールを返す */
+export function getByDifficulty(difficulty: Difficulty | 'all'): VocabItem[] {
+  const unique = Array.from(
+    new Map(TOEIC_WORDS.map((w) => [w.word.toLowerCase(), w])).values()
+  );
+  if (difficulty === 'all') return unique;
+  return unique.filter((w) => getDifficulty(w.word) === difficulty);
+}

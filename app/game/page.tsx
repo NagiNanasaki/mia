@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import CatAvatar from '@/components/CatAvatar';
 import type { GameQuestion } from '@/app/api/game/questions/route';
+import type { Difficulty } from '@/lib/toeic-words';
 
 const EXP_TABLE: Record<GameQuestion['type'], number> = {
   ja_select: 10,
@@ -85,6 +86,7 @@ function pickComment(
 // --- end comments ---
 
 type GamePhase = 'loading' | 'start' | 'playing' | 'result' | 'complete';
+type GameMode = 'toeic' | 'translate';
 
 type Progress = {
   exp: number;
@@ -109,6 +111,13 @@ function getQuestionTypeDescription(type: GameQuestion['type']): string {
   return 'Fill in the blank';
 }
 
+const DIFFICULTY_OPTIONS: { value: Difficulty | 'all'; label: string; color: string }[] = [
+  { value: 'all',    label: 'All',    color: 'bg-gray-500' },
+  { value: 'easy',   label: 'Easy',   color: 'bg-green-500' },
+  { value: 'medium', label: 'Medium', color: 'bg-yellow-500' },
+  { value: 'hard',   label: 'Hard',   color: 'bg-red-500' },
+];
+
 export default function GamePage() {
   const [vocabOwnerId] = useState(() => {
     if (typeof window === 'undefined') return '';
@@ -129,6 +138,13 @@ export default function GamePage() {
   const [leveledUp, setLeveledUp] = useState(false);
   const [savingExp, setSavingExp] = useState(false);
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+
+  // Game settings
+  const [difficulty, setDifficulty] = useState<Difficulty | 'all'>('all');
+  const [gameMode, setGameMode] = useState<GameMode>('toeic');
+  const [translateAvailable, setTranslateAvailable] = useState(false);
+  const [notEnough, setNotEnough] = useState(false);
+
   const totalExpRef = useRef(0);
 
   async function fetchProgress(id: string) {
@@ -139,23 +155,50 @@ export default function GamePage() {
     setProgress(data);
   }
 
-  async function loadQuestions(id: string) {
-    const res = await fetch(`/api/game/questions?vocabOwnerId=${encodeURIComponent(id)}`);
+  async function checkTranslateAvailability(id: string) {
+    if (!id) return;
+    try {
+      const res = await fetch(
+        `/api/game/questions?vocabOwnerId=${encodeURIComponent(id)}&mode=translate`
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      setTranslateAvailable(!data.notEnough && Array.isArray(data.questions) && data.questions.length > 0);
+    } catch {
+      // ignore
+    }
+  }
+
+  async function loadQuestions(id: string, mode: GameMode, diff: Difficulty | 'all') {
+    const params = new URLSearchParams({ vocabOwnerId: id, mode });
+    if (mode === 'toeic') params.set('difficulty', diff);
+    const res = await fetch(`/api/game/questions?${params.toString()}`);
     if (!res.ok) {
       setQuestions([]);
       return;
     }
-    const { questions: nextQuestions } = await res.json();
-    setQuestions(Array.isArray(nextQuestions) ? nextQuestions : []);
+    const data = await res.json();
+    if (data.notEnough) {
+      setNotEnough(true);
+      setQuestions([]);
+      return;
+    }
+    setNotEnough(false);
+    setQuestions(Array.isArray(data.questions) ? data.questions : []);
   }
 
   useEffect(() => {
     if (!vocabOwnerId) return;
     const init = async () => {
-      await Promise.all([fetchProgress(vocabOwnerId), loadQuestions(vocabOwnerId)]);
+      await Promise.all([
+        fetchProgress(vocabOwnerId),
+        loadQuestions(vocabOwnerId, gameMode, difficulty),
+        checkTranslateAvailability(vocabOwnerId),
+      ]);
       setPhase('start');
     };
     init();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vocabOwnerId]);
 
   function showQuestion(idx: number, sourceQuestions = questions) {
@@ -170,10 +213,19 @@ export default function GamePage() {
   }
 
   async function startGame() {
+    setPhase('loading');
+    setNotEnough(false);
+    totalExpRef.current = 0;
+    setScore(0);
+    setTotalExpGained(0);
+    setLeveledUp(false);
+    await loadQuestions(vocabOwnerId, gameMode, difficulty);
+    setPhase('start');
+  }
+
+  async function handleStartPlay() {
     if (questions.length === 0) {
-      setPhase('loading');
-      await loadQuestions(vocabOwnerId);
-      setPhase('start');
+      await startGame();
       return;
     }
     totalExpRef.current = 0;
@@ -181,6 +233,22 @@ export default function GamePage() {
     setTotalExpGained(0);
     setLeveledUp(false);
     showQuestion(0, questions);
+  }
+
+  async function handleModeChange(newMode: GameMode) {
+    setGameMode(newMode);
+    setPhase('loading');
+    setNotEnough(false);
+    await loadQuestions(vocabOwnerId, newMode, difficulty);
+    setPhase('start');
+  }
+
+  async function handleDifficultyChange(newDiff: Difficulty | 'all') {
+    setDifficulty(newDiff);
+    if (gameMode === 'translate') return; // difficulty doesn't apply to translate mode
+    setPhase('loading');
+    await loadQuestions(vocabOwnerId, 'toeic', newDiff);
+    setPhase('start');
   }
 
   function handleSelectAnswer(option: string) {
@@ -239,7 +307,8 @@ export default function GamePage() {
     setSelectedOption(null);
     setComment('');
     setSaveState('idle');
-    await Promise.all([fetchProgress(vocabOwnerId), loadQuestions(vocabOwnerId)]);
+    setNotEnough(false);
+    await Promise.all([fetchProgress(vocabOwnerId), loadQuestions(vocabOwnerId, gameMode, difficulty)]);
     setPhase('start');
   }
 
@@ -302,7 +371,8 @@ export default function GamePage() {
           <h1 className="mx-auto text-base font-bold text-gray-800 dark:text-gray-100">English Quiz</h1>
         </header>
 
-        <div className="flex flex-1 flex-col items-center justify-center gap-6 px-6 text-center">
+        <div className="flex flex-1 flex-col items-center justify-center gap-5 px-6 text-center overflow-y-auto py-6">
+          {/* Level display */}
           <div>
             <div className="text-5xl font-black text-purple-600 dark:text-purple-400">Lv.{progress.level}</div>
             <p className="mt-1 text-sm text-gray-500">EXP {progress.exp} / {progress.nextLevelExp}</p>
@@ -311,6 +381,7 @@ export default function GamePage() {
             </div>
           </div>
 
+          {/* Characters */}
           <div className="flex items-end gap-6">
             {(['mia', 'mimi'] as const).map((character) => (
               <div key={character} className="flex flex-col items-center gap-1">
@@ -322,24 +393,101 @@ export default function GamePage() {
             ))}
           </div>
 
-          <div>
-            <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100">5-question challenge</h2>
-            <p className="mt-1 text-sm text-gray-500">TOEIC 700 word quiz</p>
+          {/* Mode selector */}
+          <div className="w-full max-w-xs space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Mode</p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => gameMode !== 'toeic' && handleModeChange('toeic')}
+                className={`flex-1 rounded-xl border py-2.5 text-sm font-bold transition-all ${
+                  gameMode === 'toeic'
+                    ? 'border-purple-400 bg-purple-600 text-white shadow-md'
+                    : 'border-purple-200 bg-white text-purple-500 hover:bg-purple-50 dark:border-gray-600 dark:bg-gray-700 dark:text-purple-300'
+                }`}
+              >
+                TOEIC
+              </button>
+              <button
+                onClick={() => {
+                  if (!translateAvailable) return;
+                  gameMode !== 'translate' && handleModeChange('translate');
+                }}
+                disabled={!translateAvailable}
+                className={`flex-1 rounded-xl border py-2.5 text-sm font-bold transition-all disabled:cursor-not-allowed disabled:opacity-40 ${
+                  gameMode === 'translate'
+                    ? 'border-orange-400 bg-orange-500 text-white shadow-md'
+                    : 'border-orange-200 bg-white text-orange-500 hover:bg-orange-50 dark:border-gray-600 dark:bg-gray-700 dark:text-orange-300'
+                }`}
+                title={!translateAvailable ? '翻訳ページで3語以上保存してから使えます' : ''}
+              >
+                翻訳単語
+                {!translateAvailable && <span className="ml-1 text-[10px] opacity-60">🔒</span>}
+              </button>
+            </div>
+            {gameMode === 'translate' && (
+              <p className="text-xs text-orange-500">翻訳ページで保存した単語で出題</p>
+            )}
           </div>
 
-          <div className="w-full max-w-xs space-y-3">
-            <div className="flex justify-around text-center text-xs text-gray-500">
-              <div><div className="font-bold text-purple-600">+10 EXP</div><div>JP meaning</div></div>
-              <div><div className="font-bold text-purple-600">+15 EXP</div><div>EN word</div></div>
-              <div><div className="font-bold text-purple-600">+25 EXP</div><div>Fill blank</div></div>
+          {/* Difficulty selector (TOEIC mode only) */}
+          {gameMode === 'toeic' && (
+            <div className="w-full max-w-xs space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Difficulty</p>
+              <div className="grid grid-cols-4 gap-1.5">
+                {DIFFICULTY_OPTIONS.map(({ value, label, color }) => (
+                  <button
+                    key={value}
+                    onClick={() => difficulty !== value && handleDifficultyChange(value)}
+                    className={`rounded-xl border py-2 text-xs font-bold transition-all ${
+                      difficulty === value
+                        ? `${color} border-transparent text-white shadow-md`
+                        : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-gray-400">
+                {difficulty === 'all' && 'すべてのTOEIC単語'}
+                {difficulty === 'easy' && '旅行・慣用句など日常語'}
+                {difficulty === 'medium' && 'ビジネス・テクノロジー・医療'}
+                {difficulty === 'hard' && '金融・法律の専門用語'}
+              </p>
             </div>
-            <button
-              onClick={startGame}
-              disabled={questions.length === 0}
-              className="w-full rounded-2xl bg-purple-600 py-4 text-lg font-bold text-white shadow-lg transition-all hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-95"
-            >
-              Start
-            </button>
+          )}
+
+          {/* EXP info */}
+          <div className="w-full max-w-xs">
+            {gameMode === 'toeic' && (
+              <div className="flex justify-around text-center text-xs text-gray-500 mb-3">
+                <div><div className="font-bold text-purple-600">+10 EXP</div><div>JP meaning</div></div>
+                <div><div className="font-bold text-purple-600">+15 EXP</div><div>EN word</div></div>
+                <div><div className="font-bold text-purple-600">+25 EXP</div><div>Fill blank</div></div>
+              </div>
+            )}
+            {gameMode === 'translate' && (
+              <div className="flex justify-around text-center text-xs text-gray-500 mb-3">
+                <div><div className="font-bold text-orange-500">+10 EXP</div><div>JP meaning</div></div>
+                <div><div className="font-bold text-orange-500">+15 EXP</div><div>EN word</div></div>
+              </div>
+            )}
+
+            {notEnough ? (
+              <div className="rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3 text-center text-sm text-orange-600 dark:border-orange-700 dark:bg-orange-900/20 dark:text-orange-300">
+                {gameMode === 'translate'
+                  ? '翻訳単語が3語以上必要です。翻訳ページで単語を保存してください。'
+                  : '選択した難易度の単語が見つかりません。'}
+              </div>
+            ) : (
+              <button
+                onClick={handleStartPlay}
+                disabled={questions.length === 0}
+                className="w-full rounded-2xl bg-purple-600 py-4 text-lg font-bold text-white shadow-lg transition-all hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-40 active:scale-95"
+              >
+                Start
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -494,7 +642,6 @@ export default function GamePage() {
 
           {question.type === 'reorder' && (
             <div className="space-y-2 text-center">
-              {/* Sentence with styled blank */}
               <p className="text-base font-semibold leading-relaxed text-gray-800 dark:text-gray-100">
                 {question.sentence?.split('___').map((part, i, arr) => (
                   <span key={i}>
@@ -507,13 +654,12 @@ export default function GamePage() {
                   </span>
                 ))}
               </p>
-              {/* Japanese translation as hint */}
               <p className="text-sm text-gray-500 dark:text-gray-400">{question.sentenceTranslation}</p>
             </div>
           )}
         </div>
 
-        {/* Answer options — all types use the same 4-choice grid */}
+        {/* Answer options */}
         <div className="grid grid-cols-2 gap-3">
           {(question.options ?? []).map((option) => {
             let style =

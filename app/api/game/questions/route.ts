@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
-import { TOEIC_WORDS } from '@/lib/toeic-words';
+import { TOEIC_WORDS, getByDifficulty } from '@/lib/toeic-words';
+import type { Difficulty } from '@/lib/toeic-words';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -61,16 +62,24 @@ function buildFallbackSentenceTranslation(word: string, meaning: string): string
 
 function buildBlankSentence(sentence: string, word: string): string {
   // Replace first occurrence (case-insensitive word boundary match)
-  const regex = new RegExp(`\\b${word}\\b`, 'i');
+  const regex = new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
   const result = sentence.replace(regex, '___');
   if (result !== sentence) return result;
-  // Fallback: simple case-insensitive replace
-  return sentence.replace(new RegExp(word, 'i'), '___');
+  return sentence.replace(new RegExp(word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), '___');
 }
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const vocabOwnerId = searchParams.get('vocabOwnerId') ?? '';
+  const difficultyParam = (searchParams.get('difficulty') ?? 'all') as Difficulty | 'all';
+  const mode = searchParams.get('mode') ?? 'toeic'; // 'toeic' | 'translate'
+
+  // ── Translate mode: 単語帳の source='translate' 単語を使う ──
+  if (mode === 'translate') {
+    return handleTranslateMode(vocabOwnerId);
+  }
+
+  // ── TOEIC mode ──
 
   // Fetch user vocabulary words from Supabase
   const userVocabWords = new Set<string>();
@@ -90,8 +99,11 @@ export async function GET(req: Request) {
     }
   }
 
-  // Build priority pool: TOEIC words that also appear in the user's notebook
-  const toeicByLower = new Map(TOEIC_WORDS.map((w) => [w.word.toLowerCase(), w]));
+  // 難易度でフィルタリングされた単語プールを取得
+  const difficultyPool = getByDifficulty(difficultyParam);
+
+  // Build priority pool: difficulty pool の中でユーザーの単語帳と重なるもの
+  const toeicByLower = new Map(difficultyPool.map((w) => [w.word.toLowerCase(), w]));
   const priorityWords = shuffle(
     [...userVocabWords]
       .map((w) => toeicByLower.get(w))
@@ -99,9 +111,9 @@ export async function GET(req: Request) {
   );
   const priorityKeys = new Set(priorityWords.map((w) => w.word.toLowerCase()));
 
-  // Fill remaining slots from the rest of the TOEIC list
-  const remainingToeic = shuffle(TOEIC_WORDS.filter((w) => !priorityKeys.has(w.word.toLowerCase())));
-  const combined = [...priorityWords, ...remainingToeic];
+  // Fill remaining slots from the difficulty pool
+  const remaining = shuffle(difficultyPool.filter((w) => !priorityKeys.has(w.word.toLowerCase())));
+  const combined = [...priorityWords, ...remaining];
 
   const seen = new Set<string>();
   const pool: { word: string; translation: string }[] = [];
@@ -115,9 +127,61 @@ export async function GET(req: Request) {
   }
   const selected = pool.slice(0, 5);
 
-  // Assign question types: shuffle 2×each type, take 5 → always ≥1 of each
-  const types: QuestionType[] = shuffle([...QUESTION_TYPES, ...QUESTION_TYPES]).slice(0, 5) as QuestionType[];
+  return buildQuestions(selected, pool);
+}
+
+// ── Translate mode handler ──
+async function handleTranslateMode(vocabOwnerId: string): Promise<Response> {
+  if (!vocabOwnerId) {
+    return Response.json({ error: 'vocabOwnerId required', questions: [] }, { status: 400 });
+  }
+
+  let translateWords: { word: string; translation: string }[] = [];
+  try {
+    const { data } = await supabase
+      .from('vocabulary')
+      .select('phrase, translation')
+      .eq('session_id', vocabOwnerId)
+      .eq('source', 'translate');
+    if (data) {
+      translateWords = data
+        .filter((r) => r.phrase && r.translation)
+        .map((r) => ({ word: r.phrase as string, translation: r.translation as string }));
+    }
+  } catch {
+    return Response.json({ error: 'DB error', questions: [] }, { status: 500 });
+  }
+
+  if (translateWords.length < 3) {
+    return Response.json({ notEnough: true, questions: [] });
+  }
+
+  // 重複除去してシャッフル
+  const unique = Array.from(
+    new Map(translateWords.map((w) => [w.word.toLowerCase(), w])).values()
+  );
+  const pool = shuffle(unique).slice(0, 10);
+  const selected = pool.slice(0, 5);
+
+  // translate モードは ja_select / en_select のみ（reorderはフレーズに向かない場合あり）
+  const types: QuestionType[] = shuffle([
+    'ja_select', 'en_select', 'ja_select', 'en_select', 'ja_select',
+  ]) as QuestionType[];
+
+  return buildQuestions(selected, pool, types);
+}
+
+// ── Question builder (shared) ──
+async function buildQuestions(
+  selected: { word: string; translation: string }[],
+  pool: { word: string; translation: string }[],
+  fixedTypes?: QuestionType[]
+): Promise<Response> {
   const chars: ('mia' | 'mimi')[] = ['mia', 'mimi', 'mia', 'mimi', 'mia'];
+
+  // Assign question types
+  const types: QuestionType[] = fixedTypes
+    ?? (shuffle([...QUESTION_TYPES, ...QUESTION_TYPES]).slice(0, 5) as QuestionType[]);
 
   const wordList = selected.map((w, i) => ({
     index: i,
@@ -126,12 +190,12 @@ export async function GET(req: Request) {
     type: types[i],
   }));
 
-  const prompt = `Generate quiz question data for English learners (TOEIC 700 level).
+  const prompt = `Generate quiz question data for English learners.
 
 For each item, generate the required data based on the type:
 - "ja_select": 3 wrong Japanese translations as distractors (plausible but clearly wrong)
 - "en_select": 3 wrong English words as distractors (similar register, plausible but wrong)
-- "reorder": a natural English sentence (6-9 words) that uses the EXACT word form as given. Also provide 3 wrong English words as fill-in-the-blank distractors (words that could plausibly fit but are incorrect). Provide a natural Japanese translation of the full sentence.
+- "reorder": a natural English sentence (6-9 words) that uses the EXACT word form as given. Also provide 3 wrong English words as fill-in-the-blank distractors. Provide a natural Japanese translation of the full sentence.
 
 Items:
 ${JSON.stringify(wordList, null, 2)}
@@ -177,15 +241,13 @@ Format:
         gen?.sentenceTranslation?.trim() || buildFallbackSentenceTranslation(item.word, item.translation);
       const blankSentence = buildBlankSentence(rawSentence, item.word);
 
-      // Build 3 distractors, fall back to other pool words
       const genDistractors = Array.from(new Set((gen?.distractors ?? []).filter(Boolean))).filter(
         (d) => d.toLowerCase() !== item.word.toLowerCase()
       );
       const fallbackDistractors = shuffle(pool)
         .filter((p) => p.word.toLowerCase() !== item.word.toLowerCase())
         .map((p) => p.word);
-      const distractors = Array.from(new Set([...genDistractors, ...fallbackDistractors]))
-        .slice(0, 3);
+      const distractors = Array.from(new Set([...genDistractors, ...fallbackDistractors])).slice(0, 3);
 
       return {
         type,

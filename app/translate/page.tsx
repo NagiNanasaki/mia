@@ -108,6 +108,7 @@ export default function TranslatePage() {
         body: JSON.stringify({
           items: [{ phrase: input.trim(), translation: `${translation}（${nuance}）` }],
           sessionId: vocabOwnerId,
+          source: 'translate',
         }),
       });
       if (!res.ok) throw new Error('save failed');
