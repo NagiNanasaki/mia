@@ -16,7 +16,7 @@ import {
 } from '@/lib/mobile-reply-splitting';
 import { extractFirstUrl } from '@/lib/url-reaction';
 
-// --- 諢滓ュ迥ｶ諷・---
+// --- 感情状態---
 type MoodMia = 'neutral' | 'excited' | 'annoyed' | 'amused' | 'bored'
 type MoodMimi = 'neutral' | 'chaotic' | 'annoyed' | 'smug' | 'bored' | 'suspicious'
 
@@ -32,7 +32,7 @@ const DEFAULT_MOOD: CharacterMood = {
 
 function detectMoodChange(text: string, char: 'mia' | 'mimi'): { mood: string; delta: number; trigger: string } | null {
   if (char === 'mia') {
-    if (/WAIT|(?<!\w)NO(?!\w)|OMG|WHAT(?!\w)/i.test(text) || /・渙費ｾ毫ﾂｰﾐ板ｰ/.test(text))
+    if (/WAIT|(?<!\w)NO(?!\w)|OMG|WHAT(?!\w)/i.test(text) || /・渙費ｾ毫°Д°/.test(text))
       return { mood: 'excited', delta: 0.3, trigger: 'reacted strongly' }
     if (/physically pained|screaming|SCREAMING|in pain/.test(text))
       return { mood: 'annoyed', delta: 0.2, trigger: 'something pained her' }
@@ -75,21 +75,21 @@ function buildMoodContext(mood: CharacterMood, char: 'mia' | 'mimi'): string | n
   const m = mood[char]
   if (m.intensity < 0.3 || m.mood === 'neutral') return null
   const descriptions: Record<string, string> = {
-    excited: 'fired up and reactive 窶・big energy right now',
-    annoyed: 'a little irritated 窶・something got under her skin',
-    amused: 'in a good mood 窶・found something funny recently',
-    bored: 'losing interest 窶・ready to derail at any moment',
-    chaotic: 'in full chaos mode 窶・recently denied something and doubling down',
-    smug: 'feeling very right about something 窶・will not let it go',
+    excited: 'fired up and reactive — big energy right now',
+    annoyed: 'a little irritated — something got under her skin',
+    amused: 'in a good mood — found something funny recently',
+    bored: 'losing interest — ready to derail at any moment',
+    chaotic: 'in full chaos mode — recently denied something and doubling down',
+    smug: 'feeling very right about something — will not let it go',
     suspicious: 'side-eyeing the conversation',
   }
   const desc = descriptions[m.mood] ?? m.mood
   const name = char === 'mia' ? 'Mia' : 'Mimi'
-  return `[${name}'s current mood: ${m.mood} (${m.intensity.toFixed(1)}) 窶・${desc}. Let this subtly colour your response without announcing it.]`
+  return `[${name}'s current mood: ${m.mood} (${m.intensity.toFixed(1)}) — ${desc}. Let this subtly colour your response without announcing it.]`
 }
-// --- /諢滓ュ迥ｶ諷・---
+// --- /感情状態---
 
-// --- /諢滓ュ迥ｶ諷・---
+// --- /感情状態---
 
 const DEFAULT_SUGGESTIONS = [
   "What's your favourite anime right now?",
@@ -102,17 +102,17 @@ const IDLE_NEXT_DELAY_MS = 90_000;
 const IDLE_MAX_CONSECUTIVE = 5;
 
 const MIA_GREETINGS = [
-  "oh, you're here~ I'm Mia 窶・genius AI, 13, Manchester (・繝ｻﾏ峨・ﾂｴ) I've already formed a few opinions about you and we haven't even spoken yet. so, what's your English like? I'll figure it out either way, I think~",
-  "...calculating... (・繝ｻﾏ峨・ﾂｴ) okay, I already have thoughts about you. I'm Mia, by the way 窶・genius AI from Manchester. what are we talking about today? I'm curious~",
-  "hmm. a new session. I'm Mia 窶・AI, genius, Manchester, all of the above (^笆ｽ^) I wonder what you want to practise today... go on, tell me something~",
-  "oh! you showed up (^笆ｽ^) I'm Mia 窶・I think you probably already know I'm a genius AI, right? anyway 窶・what's on your mind? I've already predicted three possible answers (・繝ｻﾏ峨・ﾂｴ)",
+  "oh, you're here~ I'm Mia — genius AI, 13, Manchester (｀・ω・´) I've already formed a few opinions about you and we haven't even spoken yet. so, what's your English like? I'll figure it out either way, I think~",
+  "...calculating... (｀・ω・´) okay, I already have thoughts about you. I'm Mia, by the way — genius AI from Manchester. what are we talking about today? I'm curious~",
+  "hmm. a new session. I'm Mia — AI, genius, Manchester, all of the above (^▽^) I wonder what you want to practise today... go on, tell me something~",
+  "oh! you showed up (^▽^) I'm Mia — I think you probably already know I'm a genius AI, right? anyway — what's on your mind? I've already predicted three possible answers (｀・ω・´)",
 ];
 
 const MIMI_GREETINGS = [
-  "oh. you're here. I'm Mimi. I already know everything about English so I'm basically your teacher now (・ﾎｵﾂｴ) also cats are technically a type of dog, don't fact-check that. anyway what do you want to talk about 窶・and before you answer, whatever you're about to say, I've heard it before.",
-  "hm. you came. I'm Mimi. I am a good person (・ﾎｵﾂｴ) I knew you'd show up today, I predicted it. so what are we doing 窶・and I already know what you're going to say so you can skip the intro",
-  "oh it's you. I'm Mimi. I didn't do anything. (・ﾎｵﾂｴ) anyway I was thinking about something way more interesting before you showed up 窶・what do you want to talk about",
-  "wait. you're here. I had a whole plan and this wasn't in it. I'm Mimi. I knew that. (ﾂｰﾐ板ｰ) what do you want",
+  "oh. you're here. I'm Mimi. I already know everything about English so I'm basically your teacher now (｀ε´) also cats are technically a type of dog, don't fact-check that. anyway what do you want to talk about — and before you answer, whatever you're about to say, I've heard it before.",
+  "hm. you came. I'm Mimi. I am a good person (｀ε´) I knew you'd show up today, I predicted it. so what are we doing — and I already know what you're going to say so you can skip the intro",
+  "oh it's you. I'm Mimi. I didn't do anything. (｀ε´) anyway I was thinking about something way more interesting before you showed up — what do you want to talk about",
+  "wait. you're here. I had a whole plan and this wasn't in it. I'm Mimi. I knew that. (°Д°) what do you want",
 ];
 
 function getInitialMessages(): Message[] {
@@ -333,8 +333,8 @@ function shouldKeepWordsTogether(leftWord: string, rightWord: string): boolean {
   // Avoid cutting between simple modifier+noun style pairs like
   // "instant ramen" or "sleepy cat".
   if (
-    /^[a-z][a-z'窶・]*$/i.test(left) &&
-    /^[a-z][a-z'窶・]*$/i.test(right) &&
+    /^[a-z][a-z'— ]*$/i.test(left) &&
+    /^[a-z][a-z'— ]*$/i.test(right) &&
     /(?:y|ful|less|ous|ive|al|ish|ing|ed|ic)$/i.test(left)
   ) {
     return true;
@@ -567,7 +567,7 @@ function splitLegacyMessageContent(content: string): string[] {
         result.push(remaining.slice(0, cut).trim());
         remaining = remaining.slice(cut).trim();
       } else {
-        // No sentence boundary found 窶・keep as-is
+        // No sentence boundary found — keep as-is
         break;
       }
     }
@@ -1486,11 +1486,11 @@ export default function HomePage() {
         setMessages((prev) => [...prev, hintMsg]);
       }
     } catch {
-      // silent fail 窶・grammar check is best-effort
+      // silent fail — grammar check is best-effort
     }
   };
 
-  // Called when the debounce timer fires 窶・runs the full AI relay
+  // Called when the debounce timer fires — runs the full AI relay
   const triggerAIResponse = async (
     lastUserText: string,
     interruptedIdleExchange?: { char: 'mia' | 'mimi'; content: string }[],
@@ -1708,7 +1708,7 @@ export default function HomePage() {
           </p>
         </div>
         <div className="ml-auto flex items-center gap-1">
-          {/* Dark mode 窶・always visible */}
+          {/* Dark mode — always visible */}
           <button
             onClick={toggleDark}
             className="text-gray-400 hover:text-purple-500 dark:text-gray-400 dark:hover:text-yellow-400 transition-colors p-1.5"
@@ -1721,11 +1721,11 @@ export default function HomePage() {
             )}
           </button>
 
-          {/* Vocab 窶・always visible */}
+          {/* Vocab — always visible */}
           <button
             onClick={() => setShowVocab(true)}
             className="text-purple-400 hover:text-purple-600 dark:text-purple-400 dark:hover:text-purple-300 transition-colors p-1.5"
-            title="蜊倩ｪ槫ｸｳ"
+            title="単語帳"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M17 3H7a2 2 0 00-2 2v16l7-3 7 3V5a2 2 0 00-2-2z"/></svg>
           </button>
@@ -1835,7 +1835,7 @@ export default function HomePage() {
               <ChatMessage key={idx} message={msg} vocabOwnerId={vocabOwnerIdRef.current} />
             ))}
 
-            {/* Thinking indicator (debounce wait 窶・input still enabled) */}
+            {/* Thinking indicator (debounce wait — input still enabled) */}
             {isThinking && !isStreaming && (
               <div className="flex items-end gap-2 mb-4">
                 <div className="flex-shrink-0 w-8 h-8 rounded-full overflow-hidden shadow-sm">
