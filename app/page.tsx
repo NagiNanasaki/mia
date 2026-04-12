@@ -910,6 +910,7 @@ export default function HomePage() {
   const vocabOwnerIdRef = useRef<string>('');
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const isInitialScrollDoneRef = useRef(false);
   const refreshMenuRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const messagesRef = useRef<Message[]>([]);
@@ -995,6 +996,12 @@ export default function HomePage() {
   useEffect(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
+    // 初回ロード時は無条件で最下部へ（距離チェックなし）
+    if (!isInitialScrollDoneRef.current) {
+      isInitialScrollDoneRef.current = true;
+      bottomRef.current?.scrollIntoView({ behavior: 'instant' });
+      return;
+    }
     const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
     if (distanceFromBottom < 120) {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
