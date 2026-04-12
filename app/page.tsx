@@ -1733,15 +1733,15 @@ export default function HomePage() {
           <button
             type="button"
             onClick={() => setTriviaText(null)}
-            className="pointer-events-auto flex w-full max-w-sm items-start gap-3 rounded-3xl border border-orange-200 bg-white/95 p-4 text-left shadow-xl backdrop-blur transition hover:-translate-y-0.5"
+            className="pointer-events-auto flex w-full max-w-sm items-start gap-3 rounded-3xl border border-orange-200 dark:border-orange-900 bg-white/95 dark:bg-gray-800/95 p-4 text-left shadow-xl backdrop-blur transition hover:-translate-y-0.5"
           >
             <div className="overflow-hidden rounded-full shadow-sm">
               <CatAvatar variant="mimi" size={40} />
             </div>
             <div className="min-w-0">
-              <p className="text-xs font-semibold uppercase tracking-wide text-orange-500">Mimi daily trivia</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-orange-500 dark:text-orange-400">Mimi daily trivia</p>
               <p className="mt-1 text-sm leading-snug text-gray-800 dark:text-gray-100">{triviaText}</p>
-              <p className="mt-2 text-[11px] text-gray-400">Tap to close</p>
+              <p className="mt-2 text-[11px] text-gray-400 dark:text-gray-500">Tap to close</p>
             </div>
           </button>
         </div>
