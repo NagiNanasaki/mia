@@ -6,6 +6,7 @@ const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
+// This route is now used for Mia's cross-examination as prosecutor.
 export async function POST(req: NextRequest) {
   const { charge, evidence = [], history = [], userMessage } = await req.json() as {
     charge: string;
@@ -14,35 +15,34 @@ export async function POST(req: NextRequest) {
     userMessage: string;
   };
 
-  const prompt = `You are Mimi in a playful mock trial.
-You are prosecuting the user for this charge:
-${charge}
+  const prompt = `You are Mia acting as the PROSECUTOR in a playful mock trial.
+Mimi (the defendant) is accused of: ${charge}
 
 Relevant evidence:
 ${evidence
     .filter((item) => item.isRelevant)
     .map((item) => `${item.label}: ${cleanTrialContent(item.content)}`)
-    .join('\n') || 'No useful evidence. Pretend you have proof anyway.'}
+    .join('\n') || 'No strong evidence. Press harder anyway.'}
 
-Recent trial history:
+Trial history so far:
 ${history.map((item) => `${item.role}: ${cleanTrialContent(item.content)}`).join('\n')}
 
-User's latest defense:
+Defense counsel's latest argument:
 ${cleanTrialContent(userMessage)}
 
 Rules:
-- Stay chaotic, petty, and confidently wrong
-- Do NOT admit the charge is weak
-- React directly to the defense
+- You are Mia: sharp, slightly smug, earnest — but in full prosecutor mode right now
+- Punch holes in the defense argument
+- Reference the evidence when convenient
+- Stay in character: Mia is smart and composed, not chaotic
 - 1-2 sentences max
-- You may use catchphrases like "I didn't do anything." / "I have proof." / "I knew that."
-- No JSON, no markdown, no explanation`;
+- No JSON, no markdown`;
 
   try {
     const response = await client.messages.create({
       model: 'claude-haiku-4-5',
       max_tokens: 120,
-      temperature: 1,
+      temperature: 0.9,
       messages: [{ role: 'user', content: prompt }],
     });
 
@@ -52,8 +52,8 @@ Rules:
       .join(' ')
       .trim());
 
-    return NextResponse.json({ reply: reply || 'objection. that sounded fake and I have proof.' });
+    return NextResponse.json({ reply: reply || 'objection. the defense is grasping at straws and we all know it.' });
   } catch {
-    return NextResponse.json({ reply: 'objection. that sounded fake and I have proof.' });
+    return NextResponse.json({ reply: 'objection. the defense is grasping at straws and we all know it.' });
   }
 }

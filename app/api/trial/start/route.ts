@@ -47,19 +47,22 @@ export async function POST(req: NextRequest) {
   }
 
   const prompt = `You are setting up a ridiculous "mock trial" in a teen chat app.
+Mimi (14, chaotic, always denying everything) is the DEFENDANT.
+Mia (13, sharp, slightly smug) is the PROSECUTOR.
+
 Create:
-1. one funny charge from Mimi against the user
+1. one funny charge — what Mimi is accused of doing
 2. five short evidence items labelled as exhibits
 
 Rules:
-- Tone: playful, petty, dramatic, chaotic
-- The charge must sound like Mimi accusing the user of something silly
-- Evidence should be based loosely on the conversation when possible
+- Tone: playful, petty, dramatic
+- The charge must be something Mimi would absolutely deny doing
+- Evidence should be loosely based on the conversation when possible
 - Keep each evidence item to 1 short sentence
 - Mark only some evidence as actually relevant
 - Output valid JSON only
 
-Recent messages:
+Recent messages (context for generating the charge):
 ${cleanedMessages.map((message) => `${message.role}: ${message.content}`).join('\n')}
 
 Use this JSON shape:

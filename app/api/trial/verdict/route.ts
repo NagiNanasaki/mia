@@ -7,37 +7,37 @@ const client = new Anthropic({
 });
 
 export async function POST(req: NextRequest) {
-  const { charge, evidence = [], userDefense = [], mimiReplies = [] } = await req.json() as {
+  const { charge, evidence = [], userDefense = [], miaReplies = [] } = await req.json() as {
     charge: string;
     evidence: TrialEvidenceItem[];
     userDefense: string[];
-    mimiReplies: string[];
+    miaReplies: string[];
   };
 
-  const prompt = `You are Mia acting as the judge in a silly mock trial.
-Charge:
-${charge}
+  const prompt = `You are the Honourable Judge presiding over a silly mock trial.
+Mimi (the defendant) is accused of: ${charge}
 
-Evidence:
+Evidence submitted:
 ${evidence.map((item) => `${item.label}: ${cleanTrialContent(item.content)}${item.isRelevant ? ' [relevant]' : ''}`).join('\n')}
 
-User defense messages:
-${userDefense.map((item, index) => `${index + 1}. ${cleanTrialContent(item)}`).join('\n') || 'No defense provided.'}
+Defense arguments (by the user as defense counsel):
+${userDefense.map((d, i) => `${i + 1}. ${cleanTrialContent(d)}`).join('\n') || 'No defense provided.'}
 
-Mimi prosecution replies:
-${mimiReplies.map((item, index) => `${index + 1}. ${cleanTrialContent(item)}`).join('\n') || 'No prosecution replies provided.'}
+Prosecution rebuttals (by Mia):
+${miaReplies.map((r, i) => `${i + 1}. ${cleanTrialContent(r)}`).join('\n') || 'No prosecution rebuttal.'}
 
 Rules:
-- Tone: Mia is amused but fair
-- Decide one outcome: guilty / not guilty / case dismissed
-- Keep verdict to 1-2 sentences max
-- Include the exact phrase "guilty", "not guilty", or "case dismissed" in the verdict
+- You are the Judge: authoritative, dry, slightly absurd sense of humour
+- Weigh the defense against the prosecution
+- Decide: guilty / not guilty / case dismissed
+- Include the exact phrase "guilty", "not guilty", or "case dismissed" in your verdict
+- 2-3 sentences max, delivered with gravitas
 - No JSON, no markdown`;
 
   try {
     const response = await client.messages.create({
       model: 'claude-haiku-4-5',
-      max_tokens: 120,
+      max_tokens: 150,
       temperature: 0.8,
       messages: [{ role: 'user', content: prompt }],
     });
@@ -48,16 +48,13 @@ Rules:
       .join(' ')
       .trim());
 
-    const safeVerdict = verdict || 'case dismissed. Mimi had energy, but not evidence.';
+    const safeVerdict = verdict || 'case dismissed. The prosecution was enthusiastic. The evidence was not.';
     return NextResponse.json({
       verdict: safeVerdict,
       outcome: parseVerdictOutcome(safeVerdict),
     });
   } catch {
-    const verdict = 'case dismissed. Mimi had energy, but not evidence.';
-    return NextResponse.json({
-      verdict,
-      outcome: parseVerdictOutcome(verdict),
-    });
+    const verdict = 'case dismissed. The prosecution was enthusiastic. The evidence was not.';
+    return NextResponse.json({ verdict, outcome: parseVerdictOutcome(verdict) });
   }
 }
