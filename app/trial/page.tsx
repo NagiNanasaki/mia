@@ -357,7 +357,13 @@ export default function TrialPage() {
                           }`}
                           title="単語を登録"
                         >
-                          {message.saveState === 'extracting' || message.saveState === 'saving' ? '...' : message.saveState === 'saved' ? '✓' : '保'}
+                          {message.saveState === 'extracting' || message.saveState === 'saving' ? (
+                            <svg className="w-3.5 h-3.5 animate-pulse" fill="currentColor" viewBox="0 0 24 24"><path d="M5 3h14a1 1 0 0 1 1 1v17l-8-4-8 4V4a1 1 0 0 1 1-1z"/></svg>
+                          ) : message.saveState === 'saved' ? (
+                            <svg className="w-3.5 h-3.5 text-emerald-500" fill="currentColor" viewBox="0 0 24 24"><path d="M5 3h14a1 1 0 0 1 1 1v17l-8-4-8 4V4a1 1 0 0 1 1-1z"/></svg>
+                          ) : (
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 3h14a1 1 0 0 1 1 1v17l-8-4-8 4V4a1 1 0 0 1 1-1z"/></svg>
+                          )}
                         </button>
                       </div>
                     )}
@@ -406,9 +412,9 @@ export default function TrialPage() {
                 <button
                   onClick={() => void handleSend()}
                   disabled={!input.trim() || isMiaProsecuting}
-                  className="self-end rounded-2xl bg-indigo-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="self-end rounded-2xl bg-indigo-600 px-4 py-3 text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  Submit
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
                 </button>
               </div>
             </div>
