@@ -15,14 +15,13 @@ export async function POST(req: NextRequest) {
     userMessage: string;
   };
 
+  const relevantEvidence = evidence.filter((item) => item.isRelevant);
+
   const prompt = `You are Mia acting as the PROSECUTOR in a playful mock trial.
 Mimi (the defendant) is accused of: ${charge}
 
-Relevant evidence:
-${evidence
-    .filter((item) => item.isRelevant)
-    .map((item) => `${item.label}: ${cleanTrialContent(item.content)}`)
-    .join('\n') || 'No strong evidence. Press harder anyway.'}
+Evidence you can cite by label:
+${relevantEvidence.map((item) => `${item.label}: ${cleanTrialContent(item.content)}`).join('\n') || 'No strong evidence on file.'}
 
 Trial history so far:
 ${history.map((item) => `${item.role}: ${cleanTrialContent(item.content)}`).join('\n')}
@@ -31,10 +30,10 @@ Defense counsel's latest argument:
 ${cleanTrialContent(userMessage)}
 
 Rules:
-- You are Mia: sharp, slightly smug, earnest — but in full prosecutor mode right now
+- You are Mia: sharp, slightly smug, composed — in full prosecutor mode
 - Punch holes in the defense argument
-- Reference the evidence when convenient
-- Stay in character: Mia is smart and composed, not chaotic
+- Naturally drop exhibit labels into your reply when relevant (e.g. "as Exhibit B clearly shows...")
+- Don't list all evidence — pick the most damning one if any
 - 1-2 sentences max
 - No JSON, no markdown`;
 

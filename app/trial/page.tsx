@@ -1,8 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import CatAvatar from '@/components/CatAvatar';
+import VocabSelectModal, { type VocabCandidate } from '@/components/VocabSelectModal';
 import { TRIAL_RECENT_MESSAGES_KEY, type TrialEvidenceItem, type TrialHistoryMessage } from '@/lib/trial';
 
 type Speaker = 'mia' | 'mimi' | 'user' | 'judge';
@@ -13,6 +14,8 @@ type TrialMessage = {
   id: string;
   translation?: string | null;
   isTranslating?: boolean;
+  saveState?: 'idle' | 'extracting' | 'selecting' | 'saved';
+  vocabCandidates?: VocabCandidate[];
 };
 
 type TrialPhase = 'loading' | 'defending' | 'verdict' | 'done';
@@ -47,16 +50,13 @@ export default function TrialPage() {
   const [isMiaProsecuting, setIsMiaProsecuting] = useState(false);
   const [username, setUsername] = useState<string | null>(null);
   const [ownerId, setOwnerId] = useState<string | null>(null);
+  // vocab modal state (one modal shared across all messages)
+  const [selectingMessageId, setSelectingMessageId] = useState<string | null>(null);
   const defenseMessagesRef = useRef<string[]>([]);
   const miaRepliesRef = useRef<string[]>([]);
   const hasAwardedExpRef = useRef(false);
 
   const defenseCount = defenseMessagesRef.current.length;
-
-  const visibleEvidence = useMemo(
-    () => evidence.filter((item) => item.isRelevant),
-    [evidence],
-  );
 
   useEffect(() => {
     const prev = document.body.style.overflow;
@@ -89,18 +89,13 @@ export default function TrialPage() {
         setCharge(data.charge);
         setEvidence(data.evidence ?? []);
 
-        // Mia opens as prosecutor
         const miaOpening = `court is now in session. (｀・ω・´)\nMimi, you stand accused of: ${data.charge}\nthe prosecution is ready.`;
         setMessages([{ role: 'mia', content: miaOpening, id: makeId('mia') }]);
 
         await new Promise((resolve) => setTimeout(resolve, 1200));
-
-        // Mimi reacts from the defendant stand
         setMessages((prev) => [...prev, { role: 'mimi', content: pickMimiReaction(), id: makeId('mimi') }]);
 
         await new Promise((resolve) => setTimeout(resolve, 1000));
-
-        // Mia invites defense
         const miaInvite = `${savedUsername ?? 'counselor'}, you have ${MAX_DEFENSE_TURNS} turns to defend your client. make them count.`;
         setMessages((prev) => [...prev, { role: 'mia', content: miaInvite, id: makeId('mia') }]);
         setPhase('defending');
@@ -108,7 +103,7 @@ export default function TrialPage() {
         setCharge('general suspicious behavior');
         setEvidence([]);
         setMessages([
-          { role: 'mia', content: "court is in session. Mimi stands accused of general suspicious behavior.", id: makeId('mia') },
+          { role: 'mia', content: 'court is in session. Mimi stands accused of general suspicious behavior.', id: makeId('mia') },
           { role: 'mimi', content: "I didn't do anything. I want a better lawyer.", id: makeId('mimi') },
           { role: 'mia', content: `${savedUsername ?? 'counselor'}, please present your defense.`, id: makeId('mia') },
         ]);
@@ -141,17 +136,11 @@ export default function TrialPage() {
   const submitVerdict = async () => {
     setPhase('verdict');
     setIsMiaProsecuting(false);
-
     try {
       const response = await fetch('/api/trial/verdict', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          charge,
-          evidence,
-          userDefense: defenseMessagesRef.current,
-          miaReplies: miaRepliesRef.current,
-        }),
+        body: JSON.stringify({ charge, evidence, userDefense: defenseMessagesRef.current, miaReplies: miaRepliesRef.current }),
       });
       const data = await response.json() as { verdict: string; outcome: 'guilty' | 'not_guilty' | 'dismissed' };
       setVerdict(data.verdict);
@@ -231,10 +220,63 @@ export default function TrialPage() {
     }
   };
 
+  const handleVocabExtract = async (messageId: string, content: string) => {
+    setMessages((prev) => prev.map((m) => m.id === messageId ? { ...m, saveState: 'extracting' } : m));
+    try {
+      const res = await fetch('/api/vocab-save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: content }),
+      });
+      const data = await res.json() as { items?: VocabCandidate[] };
+      const candidates = data.items ?? [];
+      if (candidates.length === 0) {
+        setMessages((prev) => prev.map((m) => m.id === messageId ? { ...m, saveState: 'idle' } : m));
+        return;
+      }
+      setMessages((prev) => prev.map((m) => m.id === messageId ? { ...m, saveState: 'selecting', vocabCandidates: candidates } : m));
+      setSelectingMessageId(messageId);
+    } catch {
+      setMessages((prev) => prev.map((m) => m.id === messageId ? { ...m, saveState: 'idle' } : m));
+    }
+  };
+
+  const handleVocabSave = async (selected: VocabCandidate[]) => {
+    if (!selectingMessageId || !ownerId) return;
+    setSelectingMessageId(null);
+    setMessages((prev) => prev.map((m) => m.id === selectingMessageId ? { ...m, saveState: 'saving' } : m));
+    if (selected.length === 0) {
+      setMessages((prev) => prev.map((m) => m.id === selectingMessageId ? { ...m, saveState: 'idle' } : m));
+      return;
+    }
+    try {
+      await fetch('/api/vocab-save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: selected, sessionId: ownerId }),
+      });
+      setMessages((prev) => prev.map((m) => m.id === selectingMessageId ? { ...m, saveState: 'saved' } : m));
+    } catch {
+      setMessages((prev) => prev.map((m) => m.id === selectingMessageId ? { ...m, saveState: 'idle' } : m));
+    }
+  };
+
+  const activeVocabMessage = selectingMessageId ? messages.find((m) => m.id === selectingMessageId) : null;
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-100 via-purple-50 to-indigo-100 dark:from-gray-900 dark:via-gray-900 dark:to-gray-800 px-4 py-6 text-gray-900 dark:text-gray-100">
-      <div className="mx-auto max-w-3xl">
+      {activeVocabMessage && (
+        <VocabSelectModal
+          items={activeVocabMessage.vocabCandidates ?? []}
+          onSave={(selected) => void handleVocabSave(selected)}
+          onClose={() => {
+            setSelectingMessageId(null);
+            setMessages((prev) => prev.map((m) => m.id === activeVocabMessage.id ? { ...m, saveState: 'idle' } : m));
+          }}
+        />
+      )}
 
+      <div className="mx-auto max-w-3xl">
         {/* Header */}
         <div className="mb-4 flex items-center justify-between">
           <div>
@@ -242,7 +284,7 @@ export default function TrialPage() {
             <p className="text-sm text-gray-500 dark:text-gray-400">Mia is prosecuting. You are defending Mimi.</p>
           </div>
           <Link href="/" className="rounded-full border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 px-4 py-2 text-sm text-gray-600 dark:text-gray-300 shadow-sm transition hover:border-purple-200 dark:hover:border-purple-700 hover:text-purple-600 dark:hover:text-purple-400">
-            Back to chat
+            Back
           </Link>
         </div>
 
@@ -250,22 +292,6 @@ export default function TrialPage() {
         <div className="mb-4 rounded-2xl border border-indigo-200 dark:border-indigo-900 bg-white/90 dark:bg-gray-800/90 p-4 shadow-sm">
           <p className="text-xs font-semibold uppercase tracking-wide text-indigo-500 dark:text-indigo-400">Charge against Mimi</p>
           <p className="mt-1 text-base font-medium">{charge || 'Preparing the indictment...'}</p>
-        </div>
-
-        {/* Evidence */}
-        <div className="mb-4 rounded-2xl border border-gray-200 dark:border-gray-700 bg-white/90 dark:bg-gray-800/90 p-4 shadow-sm">
-          <div className="mb-3 flex items-center justify-between">
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Evidence</p>
-            <p className="text-xs text-gray-400 dark:text-gray-500">Only relevant exhibits shown</p>
-          </div>
-          <div className="space-y-2">
-            {(visibleEvidence.length > 0 ? visibleEvidence : evidence).map((item) => (
-              <div key={item.id} className="rounded-xl border border-indigo-100 dark:border-indigo-900 bg-indigo-50/70 dark:bg-indigo-950/40 px-3 py-2">
-                <p className="text-xs font-semibold text-indigo-500 dark:text-indigo-400">{item.label}</p>
-                <p className="text-sm text-gray-700 dark:text-gray-300">{item.content}</p>
-              </div>
-            ))}
-          </div>
         </div>
 
         {/* Chat */}
@@ -313,13 +339,25 @@ export default function TrialPage() {
                       </div>
                     )}
                     {!isUser && (
-                      <div className="flex justify-end pr-1">
+                      <div className="flex items-center justify-end gap-3 pr-1">
                         <button
                           onClick={() => void toggleTranslation(message.id, message.content, isMia ? 'mia' : 'mimi')}
                           className={`text-xs font-bold transition-colors ${message.translation !== null && message.translation !== undefined ? 'text-yellow-500 hover:text-yellow-600' : 'text-gray-400 hover:text-yellow-500'}`}
-                          title="日本語訳を見る"
+                          title="日本語訳"
                         >
                           {message.isTranslating ? '...' : '訳'}
+                        </button>
+                        <button
+                          onClick={() => { if (!message.saveState || message.saveState === 'idle') void handleVocabExtract(message.id, message.content); }}
+                          disabled={message.saveState === 'extracting' || message.saveState === 'saving'}
+                          className={`text-xs font-bold transition-colors ${
+                            message.saveState === 'saved' ? 'text-emerald-500' :
+                            message.saveState === 'extracting' || message.saveState === 'saving' ? 'text-gray-300 cursor-not-allowed' :
+                            'text-gray-400 hover:text-indigo-500'
+                          }`}
+                          title="単語を登録"
+                        >
+                          {message.saveState === 'extracting' || message.saveState === 'saving' ? '...' : message.saveState === 'saved' ? '✓' : '保'}
                         </button>
                       </div>
                     )}
@@ -361,7 +399,8 @@ export default function TrialPage() {
                     }
                   }}
                   rows={3}
-                  className="min-h-[84px] flex-1 rounded-2xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-4 py-3 text-sm outline-none transition focus:border-indigo-300 dark:focus:border-indigo-600 focus:bg-white dark:focus:bg-gray-600 dark:text-gray-100 dark:placeholder-gray-400"
+                  style={{ fontSize: '16px' }}
+                  className="min-h-[84px] flex-1 rounded-2xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-4 py-3 outline-none transition focus:border-indigo-300 dark:focus:border-indigo-600 focus:bg-white dark:focus:bg-gray-600 dark:text-gray-100 dark:placeholder-gray-400"
                   placeholder="Defend Mimi in English..."
                 />
                 <button
