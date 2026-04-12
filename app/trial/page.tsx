@@ -42,6 +42,14 @@ export default function TrialPage() {
     [evidence],
   );
 
+  // globals.css sets overflow:hidden on body (for the chat page).
+  // Override it here so the trial page can scroll normally.
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'auto';
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+
   useEffect(() => {
     const run = async () => {
       const savedOwnerId = localStorage.getItem('mia_vocab_owner_id');

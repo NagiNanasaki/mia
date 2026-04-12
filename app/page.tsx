@@ -16,6 +16,7 @@ import {
 } from '@/lib/mobile-reply-splitting';
 import { extractFirstUrl } from '@/lib/url-reaction';
 import { TRIAL_RECENT_MESSAGES_KEY, normalizeTrialRecentMessages } from '@/lib/trial';
+import { pickFirstCharacter } from '@/lib/chat-characters';
 
 // --- 感情状態---
 type MoodMia = 'neutral' | 'excited' | 'annoyed' | 'amused' | 'bored'
@@ -101,7 +102,6 @@ const DEFAULT_SUGGESTIONS = [
 const IDLE_TRIGGER_DELAY_MS = 60_000;
 const IDLE_NEXT_DELAY_MS = 90_000;
 const IDLE_MAX_CONSECUTIVE = 5;
-const TRIVIA_DATE_KEY = 'mia_last_trivia_date';
 const TRIVIA_GENRES = ['animals', 'space', 'food', 'history'] as const;
 
 function pickTriviaGenre() {
@@ -135,15 +135,6 @@ function getInitialMessages(): Message[] {
       content: MIMI_GREETINGS[Math.floor(Math.random() * MIMI_GREETINGS.length)],
     },
   ];
-}
-
-function pickFirstCharacter(userText: string): 'mia' | 'mimi' {
-  const text = userText.toLowerCase();
-  const mimiPattern = /anime|manga|gam(e|ing)|gacha|vocaloid|miku|hatsune|figure|merch|seiyuu|voice actor|doujin|otaku|light novel|visual novel|jrpg|rhythm game|weeb/;
-  const miaPattern = /science|physics|quantum|biology|chemistry|space|\bai\b|artificial intelligence|philosoph|conscious|existence|manchester|british|england|\buk\b|indie|city pop/;
-  if (mimiPattern.test(text)) return Math.random() < 0.7 ? 'mimi' : 'mia';
-  if (miaPattern.test(text)) return Math.random() < 0.7 ? 'mia' : 'mimi';
-  return Math.random() < 0.5 ? 'mia' : 'mimi';
 }
 
 function getStoredId(key: string): string {
@@ -905,6 +896,7 @@ export default function HomePage() {
   const [pendingCharacter, setPendingCharacter] = useState<'mia' | 'mimi' | null>(null);
   const [isIdleChatActive, setIsIdleChatActive] = useState(false);
   const [triviaText, setTriviaText] = useState<string | null>(null);
+  const [isMobileDevice, setIsMobileDevice] = useState(false);
   const sessionIdRef = useRef<string>('');
   const vocabOwnerIdRef = useRef<string>('');
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -1004,6 +996,11 @@ export default function HomePage() {
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    setIsMobileDevice(/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(window.navigator.userAgent));
+  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -1713,16 +1710,12 @@ export default function HomePage() {
     if (typeof window === 'undefined') return;
 
     void (async () => {
-      const today = new Date().toLocaleDateString('sv-SE');
-      if (localStorage.getItem(TRIVIA_DATE_KEY) === today) return;
-
       try {
         const genre = pickTriviaGenre();
         const response = await fetch(`/api/daily-trivia?genre=${genre}`);
         const data = await response.json() as { trivia?: string };
         if (data.trivia) {
           setTriviaText(data.trivia);
-          localStorage.setItem(TRIVIA_DATE_KEY, today);
         }
       } catch {
         // Ignore trivia failures and leave the main chat untouched.
@@ -2055,6 +2048,17 @@ export default function HomePage() {
                       <path d="M5 4h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2z" />
                     </svg>
                   </Link>
+                  {!isMobileDevice && (
+                    <Link
+                      href="/call"
+                      className={`flex-shrink-0 text-gray-400 transition-colors p-1.5 hover:text-emerald-500 dark:hover:text-emerald-300 ${isStreaming ? 'pointer-events-none opacity-40' : ''}`}
+                      title="Voice call"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                        <path d="M22 16.92v3a2 2 0 01-2.18 2 19.86 19.86 0 01-8.63-3.07 19.5 19.5 0 01-6-6A19.86 19.86 0 012.08 4.18 2 2 0 014.06 2h3a2 2 0 012 1.72 12.84 12.84 0 00.7 2.81 2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45 12.84 12.84 0 002.81.7A2 2 0 0122 16.92z" />
+                      </svg>
+                    </Link>
+                  )}
                 </>
               )}
             </div>
