@@ -14,7 +14,7 @@ type TrialMessage = {
   id: string;
   translation?: string | null;
   isTranslating?: boolean;
-  saveState?: 'idle' | 'extracting' | 'selecting' | 'saved';
+  saveState?: 'idle' | 'extracting' | 'selecting' | 'saving' | 'saved';
   vocabCandidates?: VocabCandidate[];
 };
 
