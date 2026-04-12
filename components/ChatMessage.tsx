@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { Fragment, useState, useRef } from 'react';
 import CatAvatar from './CatAvatar';
 import Stamp from './Stamp';
 import VocabSelectModal, { type VocabCandidate } from './VocabSelectModal';
@@ -16,6 +16,37 @@ export interface Message {
 interface ChatMessageProps {
   message: Message;
   vocabOwnerId?: string;
+}
+
+type TextSegment =
+  | { type: 'text'; content: string }
+  | { type: 'link'; url: string; title: string };
+
+const LINK_MARKER_REGEX = /\[link:(https?:\/\/[^\]|]+)\|([^\]]+)\]/g;
+
+function parseTextSegments(content: string): TextSegment[] {
+  const result: TextSegment[] = [];
+  let lastIndex = 0;
+
+  for (const match of content.matchAll(LINK_MARKER_REGEX)) {
+    const fullMatch = match[0];
+    const url = match[1];
+    const title = match[2];
+    const index = match.index ?? 0;
+
+    if (index > lastIndex) {
+      result.push({ type: 'text', content: content.slice(lastIndex, index) });
+    }
+
+    result.push({ type: 'link', url, title });
+    lastIndex = index + fullMatch.length;
+  }
+
+  if (lastIndex < content.length) {
+    result.push({ type: 'text', content: content.slice(lastIndex) });
+  }
+
+  return result.length > 0 ? result : [{ type: 'text', content }];
 }
 
 const CHARACTERS = {
@@ -251,6 +282,7 @@ export default function ChatMessage({ message, vocabOwnerId }: ChatMessageProps)
     .replace(stickerRegex, (_, name: string) => { stickers.push(name); return ''; })
     .replace(userStampRegex, (_, name: string) => { userStamps.push(name); return ''; })
     .trimStart();
+  const textSegments = parseTextSegments(displayText);
 
   const hasText = !!displayText.trim();
   const hasStamps = stamps.length > 0;
@@ -386,7 +418,25 @@ export default function ChatMessage({ message, vocabOwnerId }: ChatMessageProps)
                 : `${char?.bubbleBg} rounded-bl-sm border dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100`
             }`}
           >
-            <p className="whitespace-pre-wrap break-words">{displayText}</p>
+            <p className="whitespace-pre-wrap break-words">
+              {textSegments.map((segment, index) => {
+                if (segment.type === 'text') {
+                  return <Fragment key={index}>{segment.content}</Fragment>;
+                }
+
+                return (
+                  <a
+                    key={index}
+                    href={segment.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={isUser ? 'underline text-indigo-100 hover:text-white' : 'underline text-purple-500 hover:text-purple-600 dark:text-purple-300 dark:hover:text-purple-200'}
+                  >
+                    {segment.title}
+                  </a>
+                );
+              })}
+            </p>
           </div>
 
           {/* Translation hint */}
