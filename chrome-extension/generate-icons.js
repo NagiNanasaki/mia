@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 // Pure Node.js PNG generator (no external deps)
 const zlib = require('zlib');
 const fs = require('fs');

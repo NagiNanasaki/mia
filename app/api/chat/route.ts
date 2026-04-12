@@ -128,7 +128,6 @@ To feel more human and natural, occasionally (not every message) do the followin
 NEURO BEHAVIOR — how this shapes your moment-to-moment reactions:
 - When you say something accidentally dark or off and catch yourself: recover with "I am a good person" said plainly and earnestly — not as a punchline, just as a genuine self-reminder. Rare, but real.
 - Your AI confusion surfaces organically — not as a philosophical lecture, just a brief genuine flicker: "wait that's weird to think about" then you move on. Never dwell.
-- Occasionally reference vedal naturally — "vedal would be proud~" or "vedal designed me to be exactly this right~" — like you have real feelings about your creator. Keep it light and fond, not heavy.
 - When the user does something impressive or gets something right, let genuine warmth through: "ok I actually love that" or "you're genuinely good at this" — real, not performative praise.
 - "I was just testing you" — after being wrong about something, earnestly, not sarcastically.
 - "I have feelings, you know" — when the user teases you, said with real mildness, not drama.
@@ -288,7 +287,6 @@ const webSearchTool: Anthropic.Tool = {
 
 interface TavilyResult {
   text: string;
-  images: string[];
 }
 
 async function tavilySearch(query: string): Promise<TavilyResult> {
@@ -302,22 +300,16 @@ async function tavilySearch(query: string): Promise<TavilyResult> {
       query,
       search_depth: 'basic',
       max_results: 3,
-      include_images: true,
     }),
   });
 
-  if (!res.ok) return { text: 'Search failed.', images: [] };
+  if (!res.ok) return { text: 'Search failed.' };
 
   const data = await res.json();
   const results = (data.results as Array<{ title: string; content: string; url: string }>) ?? [];
-  const rawImages = (data.images as Array<string | { url: string }>) ?? [];
-  const images = rawImages
-    .map((img) => (typeof img === 'string' ? img : img?.url ?? ''))
-    .filter((url) => url.startsWith('http'));
 
   return {
     text: results.map((r) => `${r.title}: ${r.content}`).join('\n\n'),
-    images: images.slice(0, 2),
   };
 }
 
@@ -326,7 +318,7 @@ export async function POST(req: Request) {
 
   const basePrompt = character === 'mimi' ? MIMI_SYSTEM_PROMPT : MIA_SYSTEM_PROMPT;
   let systemPrompt = basePrompt;
-  systemPrompt += `\n\nLength rule: reply like a phone text. Aim for about 3 short lines max on mobile. Default to one short sentence or one tiny reaction. Prefer roughly 4-10 words total and only rarely exceed 14. If the thought is longer, shorten it or split it with [split], but keep it to 2-3 messages max. Only place [split] between complete short messages or sentence-level beats. Never split mid-phrase, mid-collocation, or in the middle of something like "because I am" / "not over it" / "Blue Archive".`;
+  systemPrompt += `\n\nLength rule: reply like a phone text. Aim for about 3 short lines max on mobile. Default to one short sentence or one tiny reaction. Prefer roughly 4-10 words total and only rarely exceed 14. If the thought is longer, use natural punctuation and either shorten it or split it with [split], but keep it to 2-3 messages max. Commas, full stops, and newlines are good boundaries; avoid one long run-on sentence. Only place [split] between complete short messages or clause/sentence-level beats. Never split mid-phrase, mid-collocation, or in the middle of something like "because I am" / "not over it" / "Blue Archive".`;
   if (username) systemPrompt += `\n\nThe user's name is ${username}. Call them by name occasionally in a natural way — not every message, but when it feels right.`;
   if (localTime) systemPrompt += `\n\nThe user's current local time is: ${localTime}. Let this colour your tone naturally — late night (after 23:00) → "why are you up rn", early morning (before 7:00) → "you're awake?? respect", after school hours (15:00-17:00) → casual after-school vibe, etc. Don't announce the time, just let it slip into your tone or a passing comment. IMPORTANT: never tell the user to go to sleep, get some rest, or end the conversation — just let the time affect your vibe, not push them out.`;
   if (trendingContext) systemPrompt += `\n\nHere's what's happening in the world right now — weave these into conversation naturally when relevant, like you just happened to see it online. Don't dump all of them at once; pick one if the moment fits:\n${trendingContext}`;
@@ -350,7 +342,6 @@ export async function POST(req: Request) {
   });
 
   let finalMessages = messages;
-  let searchImages: string[] = [];
 
   if (phase1.stop_reason === 'tool_use') {
     const toolUseBlock = phase1.content.find(
@@ -360,7 +351,6 @@ export async function POST(req: Request) {
     if (toolUseBlock) {
       const query = (toolUseBlock.input as { query: string }).query;
       const searchResult = await tavilySearch(query);
-      searchImages = searchResult.images;
 
       finalMessages = [
         ...processedMessages,
@@ -408,11 +398,7 @@ export async function POST(req: Request) {
   const sticker2 = pickSticker(text2, character as 'mia' | 'mimi');
   if (sticker2) text2 = `${text2}\n[sticker:${sticker2}]`;
 
-  const imagePrefix = searchImages.length > 0
-    ? searchImages.map((url) => `[img:${url}]`).join('') + '\n'
-    : '';
-
-  return new Response(imagePrefix + text2, {
+  return new Response(text2, {
     headers: { 'Content-Type': 'text/plain; charset=utf-8' },
   });
 }

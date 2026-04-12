@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
@@ -21,7 +21,7 @@ const COMMENTS = {
       "Ok so this one's actually quite interesting.",
       "I'd be surprised if you get this wrong, tbh.",
       "Hmm, think carefully about this one.",
-      "Don't rush — take a moment.",
+      "Don't rush —take a moment.",
       "This one's from my personal favourites list.",
       "I wonder if you know this one already.",
     ],
@@ -35,11 +35,11 @@ const COMMENTS = {
     ],
     wrong: [
       "Nope. The answer was {answer}. Don't forget it.",
-      "Not quite — it was {answer}. Remember that.",
+      "Not quite —it was {answer}. Remember that.",
       "Wrong this time. It's {answer}, actually.",
       "Ah, close but no. The right answer is {answer}. (´・ω・｀)",
       "Hmm, that wasn't right. It was {answer}.",
-      "Nearly! But no — it's {answer}.",
+      "Nearly! But no —it's {answer}.",
     ],
   },
   mimi: {
@@ -83,7 +83,7 @@ function pickComment(
 }
 
 type GamePhase = 'loading' | 'start' | 'playing' | 'result' | 'complete';
-type GameMode = 'toeic' | 'translate';
+type GameMode = 'toeic' | 'tagged' | 'vocab';
 
 type Progress = {
   exp: number;
@@ -135,6 +135,8 @@ export default function GamePage() {
   const [leveledUp, setLeveledUp] = useState(false);
   const [savingExp, setSavingExp] = useState(false);
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [checkingReorder, setCheckingReorder] = useState(false);
+  const [wordSaveStates, setWordSaveStates] = useState<Record<number, 'idle' | 'saving' | 'saved'>>({});
 
   // Multi-blank reorder state
   const [blankInputs, setBlankInputs] = useState<(string | null)[]>([]);
@@ -144,6 +146,7 @@ export default function GamePage() {
   const [difficulty, setDifficulty] = useState<Difficulty | 'all'>('all');
   const [gameMode, setGameMode] = useState<GameMode>('toeic');
   const [translateAvailable, setTranslateAvailable] = useState(false);
+  const [vocabAvailable, setVocabAvailable] = useState(false);
   const [notEnough, setNotEnough] = useState(false);
 
   const totalExpRef = useRef(0);
@@ -160,11 +163,25 @@ export default function GamePage() {
     if (!id) return;
     try {
       const res = await fetch(
-        `/api/game/questions?vocabOwnerId=${encodeURIComponent(id)}&mode=translate`
+        `/api/game/questions?vocabOwnerId=${encodeURIComponent(id)}&mode=tagged`
       );
       if (!res.ok) return;
       const data = await res.json();
       setTranslateAvailable(!data.notEnough && Array.isArray(data.questions) && data.questions.length > 0);
+    } catch {
+      // ignore
+    }
+  }
+
+  async function checkVocabAvailability(id: string) {
+    if (!id) return;
+    try {
+      const res = await fetch(
+        `/api/game/questions?vocabOwnerId=${encodeURIComponent(id)}&mode=vocab`
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      setVocabAvailable(!data.notEnough && Array.isArray(data.questions) && data.questions.length > 0);
     } catch {
       // ignore
     }
@@ -195,6 +212,7 @@ export default function GamePage() {
         fetchProgress(vocabOwnerId),
         loadQuestions(vocabOwnerId, gameMode, difficulty),
         checkTranslateAvailability(vocabOwnerId),
+        checkVocabAvailability(vocabOwnerId),
       ]);
       setPhase('start');
     };
@@ -256,7 +274,7 @@ export default function GamePage() {
 
   async function handleDifficultyChange(newDiff: Difficulty | 'all') {
     setDifficulty(newDiff);
-    if (gameMode === 'translate') return;
+    if (gameMode === 'tagged' || gameMode === 'vocab') return;
     setPhase('loading');
     await loadQuestions(vocabOwnerId, 'toeic', newDiff);
     setPhase('start');
@@ -309,16 +327,46 @@ export default function GamePage() {
     setRemainingOptions((prev) => [...prev, word]);
   }
 
-  // reorder: submit answer when all blanks filled
-  function handleCheckReorder() {
+  function buildSentenceFromBlanks(sentence: string, blanks: (string | null)[]) {
+    const parts = sentence.split('___');
+    return parts.reduce((acc, part, index) => {
+      if (index === 0) return part;
+      return `${acc}${blanks[index - 1] ?? '___'}${part}`;
+    }, '');
+  }
+
+  function countAnswerWords(sentence: string) {
+    return sentence.match(/[a-z0-9]+(?:[-'][a-z0-9]+)*/gi)?.length ?? 0;
+  }
+
+  // reorder: allow early submit and use the flexible judge API
+  async function handleCheckReorder() {
     if (phase !== 'playing') return;
     const question = questions[currentIdx];
     if (!question || question.type !== 'reorder' || !question.blanks) return;
-    if (blankInputs.some((b) => b === null)) return;
+    if (!blankInputs.some((b) => b !== null) || checkingReorder) return;
 
-    const correct = question.blanks.every(
-      (b, i) => blankInputs[i]?.toLowerCase() === b.toLowerCase()
-    );
+    const userSentence = buildSentenceFromBlanks(question.sentence ?? '', blankInputs);
+    const answerSentence = buildSentenceFromBlanks(question.sentence ?? '', question.blanks);
+
+    setCheckingReorder(true);
+    let correct = false;
+    try {
+      const res = await fetch('/api/game/reorder-judge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userSentence, answerSentence }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        correct = !!data.correct;
+      }
+    } catch {
+      correct = false;
+    } finally {
+      setCheckingReorder(false);
+    }
 
     if (correct) {
       setScore((prev) => prev + 1);
@@ -369,11 +417,30 @@ export default function GamePage() {
     setSelectedOption(null);
     setComment('');
     setSaveState('idle');
+    setWordSaveStates({});
     setNotEnough(false);
     setBlankInputs([]);
     setRemainingOptions([]);
     await Promise.all([fetchProgress(vocabOwnerId), loadQuestions(vocabOwnerId, gameMode, difficulty)]);
     setPhase('start');
+  }
+
+  async function saveQuizWord(idx: number, word: string, translation: string, tagged: boolean) {
+    if (!vocabOwnerId || wordSaveStates[idx] === 'saving' || wordSaveStates[idx] === 'saved') return;
+    setWordSaveStates(prev => ({ ...prev, [idx]: 'saving' }));
+    try {
+      await fetch('/api/vocab-save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          items: [{ phrase: word, translation, tagged }],
+          sessionId: vocabOwnerId,
+        }),
+      });
+      setWordSaveStates(prev => ({ ...prev, [idx]: 'saved' }));
+    } catch {
+      setWordSaveStates(prev => ({ ...prev, [idx]: 'idle' }));
+    }
   }
 
   async function handleSaveCurrentWord() {
@@ -471,22 +538,41 @@ export default function GamePage() {
               <button
                 onClick={() => {
                   if (!translateAvailable) return;
-                  gameMode !== 'translate' && handleModeChange('translate');
+                  if (gameMode !== 'tagged') {
+                    void handleModeChange('tagged');
+                  }
                 }}
                 disabled={!translateAvailable}
                 className={`flex-1 rounded-xl border py-2.5 text-sm font-bold transition-all disabled:cursor-not-allowed disabled:opacity-40 ${
-                  gameMode === 'translate'
-                    ? 'border-orange-400 bg-orange-500 text-white shadow-md'
-                    : 'border-orange-200 bg-white text-orange-500 hover:bg-orange-50 dark:border-gray-600 dark:bg-gray-700 dark:text-orange-300'
+                  gameMode === 'tagged'
+                    ? 'border-yellow-400 bg-yellow-400 text-white shadow-md'
+                    : 'border-yellow-200 bg-white text-yellow-500 hover:bg-yellow-50 dark:border-gray-600 dark:bg-gray-700 dark:text-yellow-300'
                 }`}
-                title={!translateAvailable ? '翻訳ページで3語以上保存してから使えます' : ''}
+                title={!translateAvailable ? '単語帳で★タグを3つ以上付けると使えます' : ''}
               >
-                翻訳単語
-                {!translateAvailable && <span className="ml-1 text-[10px] opacity-60">🔒</span>}
+                ★ タグ{!translateAvailable && <span className="ml-1 text-[10px] opacity-60">Locked</span>}
+              </button>
+              <button
+                onClick={() => {
+                  if (!vocabAvailable) return;
+                  if (gameMode !== 'vocab') void handleModeChange('vocab');
+                }}
+                disabled={!vocabAvailable}
+                className={`flex-1 rounded-xl border py-2.5 text-sm font-bold transition-all disabled:cursor-not-allowed disabled:opacity-40 ${
+                  gameMode === 'vocab'
+                    ? 'border-green-400 bg-green-500 text-white shadow-md'
+                    : 'border-green-200 bg-white text-green-600 hover:bg-green-50 dark:border-gray-600 dark:bg-gray-700 dark:text-green-300'
+                }`}
+                title={!vocabAvailable ? '単語帳に3語以上保存すると使えます' : ''}
+              >
+                📖 全部{!vocabAvailable && <span className="ml-1 text-[10px] opacity-60">Locked</span>}
               </button>
             </div>
-            {gameMode === 'translate' && (
-              <p className="text-xs text-orange-500">翻訳ページで保存した単語で出題</p>
+            {gameMode === 'tagged' && (
+              <p className="text-xs text-yellow-600 dark:text-yellow-400">単語帳で★を付けた単語から出題されます。</p>
+            )}
+            {gameMode === 'vocab' && (
+              <p className="text-xs text-green-600 dark:text-green-400">単語帳に保存した全単語から出題されます。</p>
             )}
           </div>
 
@@ -509,10 +595,10 @@ export default function GamePage() {
                 ))}
               </div>
               <p className="text-xs text-gray-400">
-                {difficulty === 'all' && 'すべてのTOEIC単語'}
-                {difficulty === 'easy' && '旅行・慣用句など日常語'}
-                {difficulty === 'medium' && 'ビジネス・テクノロジー・医療'}
-                {difficulty === 'hard' && '金融・法律の専門用語'}
+                {difficulty === 'all' && 'Mixed TOEIC vocabulary from all difficulty levels.'}
+                {difficulty === 'easy' && 'Common entry-level TOEIC words for warm-up practice.'}
+                {difficulty === 'medium' && 'Balanced business and everyday TOEIC vocabulary.'}
+                {difficulty === 'hard' && 'More advanced or less frequent TOEIC vocabulary.'}
               </p>
             </div>
           )}
@@ -525,7 +611,7 @@ export default function GamePage() {
                 <div><div className="font-bold text-purple-600">+25 EXP</div><div>Fill blank</div></div>
               </div>
             )}
-            {gameMode === 'translate' && (
+            {gameMode === 'tagged' && (
               <div className="flex justify-around text-center text-xs text-gray-500 mb-3">
                 <div><div className="font-bold text-orange-500">+10 EXP</div><div>JP meaning</div></div>
                 <div><div className="font-bold text-orange-500">+15 EXP</div><div>EN word</div></div>
@@ -534,9 +620,11 @@ export default function GamePage() {
 
             {notEnough ? (
               <div className="rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3 text-center text-sm text-orange-600 dark:border-orange-700 dark:bg-orange-900/20 dark:text-orange-300">
-                {gameMode === 'translate'
-                  ? '翻訳単語が3語以上必要です。翻訳ページで単語を保存してください。'
-                  : '選択した難易度の単語が見つかりません。'}
+                {gameMode === 'tagged'
+                  ? '単語帳で★タグを3つ以上付けると出題できます。'
+                  : gameMode === 'vocab'
+                  ? '単語帳に3語以上保存すると出題できます。'
+                  : 'No quiz questions are available right now. Try changing the difficulty and reload.'}
               </div>
             ) : (
               <button
@@ -563,7 +651,7 @@ export default function GamePage() {
           <h1 className="mx-auto text-base font-bold text-gray-800 dark:text-gray-100">Results</h1>
         </header>
 
-        <div className="flex flex-1 flex-col items-center justify-center gap-6 px-6">
+        <div className="flex flex-1 flex-col items-center gap-6 overflow-y-auto px-6 py-8">
           {leveledUp && (
             <div className="rounded-2xl border border-yellow-300 bg-yellow-100 px-6 py-3 text-center dark:border-yellow-700 dark:bg-yellow-900/30">
               <div className="text-2xl">Level up!</div>
@@ -596,6 +684,46 @@ export default function GamePage() {
             </div>
           </div>
 
+          {/* Quiz word list */}
+          <div className="w-full max-w-sm rounded-2xl bg-white/80 p-4 shadow-sm dark:bg-gray-800/80">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-400">今回の単語</p>
+            <div className="space-y-2">
+              {questions.map((q, idx) => {
+                const state = wordSaveStates[idx] ?? 'idle';
+                return (
+                  <div key={idx} className="flex items-center gap-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-gray-800 dark:text-gray-100">{q.word}</p>
+                      <p className="truncate text-xs text-gray-400">{q.meaning}</p>
+                    </div>
+                    {state === 'saved' ? (
+                      <span className="flex-shrink-0 rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-semibold text-green-600 dark:bg-green-900/30 dark:text-green-300">保存済み</span>
+                    ) : (
+                      <div className="flex flex-shrink-0 gap-1">
+                        <button
+                          onClick={() => saveQuizWord(idx, q.word, q.meaning, false)}
+                          disabled={state === 'saving'}
+                          className="rounded-full border border-purple-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-purple-500 transition-colors hover:bg-purple-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-purple-300"
+                          title="単語帳に保存"
+                        >
+                          {state === 'saving' ? '…' : '📖'}
+                        </button>
+                        <button
+                          onClick={() => saveQuizWord(idx, q.word, q.meaning, true)}
+                          disabled={state === 'saving'}
+                          className="rounded-full border border-yellow-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-yellow-500 transition-colors hover:bg-yellow-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-yellow-300"
+                          title="★タグ付きで保存"
+                        >
+                          {state === 'saving' ? '…' : '★'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
           <div className="flex w-full max-w-sm flex-col gap-3">
             <button
               onClick={handleRestart}
@@ -618,8 +746,11 @@ export default function GamePage() {
   if (!question) return null;
 
   const isReorder = question.type === 'reorder';
-  const allBlanksFilled = isReorder && blankInputs.every((b) => b !== null);
+  const canCheckReorder = isReorder && blankInputs.some((b) => b !== null);
   const reorderCorrect = isReorder && phase === 'result' && selectedOption === '__correct__';
+  const reorderAnswerLength = isReorder && question.sentence && question.blanks
+    ? countAnswerWords(buildSentenceFromBlanks(question.sentence, question.blanks))
+    : 0;
 
   return (
     <div className="flex h-screen flex-col bg-gradient-to-br from-purple-50 via-pink-50 to-indigo-50 dark:from-gray-900 dark:via-gray-900 dark:to-gray-800">
@@ -737,18 +868,21 @@ export default function GamePage() {
                 })}
               </p>
               <p className="text-sm text-gray-500 dark:text-gray-400 text-center">{question.sentenceTranslation}</p>
+              {reorderAnswerLength > 0 && (
+                <p className="text-xs text-center text-gray-400">Answer length: {reorderAnswerLength} words</p>
+              )}
 
               {/* Show correct answers in result when wrong */}
               {phase === 'result' && !reorderCorrect && question.blanks && (
                 <p className="text-xs text-center text-green-600 dark:text-green-400 font-semibold">
-                  ✓ {question.blanks.join(' / ')}
+                  Correct answer: {question.blanks.join(' / ')}
                 </p>
               )}
             </div>
           )}
         </div>
 
-        {/* Answer options — grid for ja/en_select, chips for reorder */}
+        {/* Answer options: grid for ja/en_select, chips for reorder */}
         {!isReorder && (
           <div className="grid grid-cols-2 gap-3">
             {(question.options ?? []).map((option) => {
@@ -798,10 +932,10 @@ export default function GamePage() {
         {isReorder && phase === 'playing' && (
           <button
             onClick={handleCheckReorder}
-            disabled={!allBlanksFilled}
+            disabled={!canCheckReorder || checkingReorder}
             className="w-full rounded-2xl bg-indigo-500 py-3 font-bold text-white shadow-md transition-all hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-30 active:scale-95"
           >
-            Check
+            {checkingReorder ? 'Checking...' : 'Check'}
           </button>
         )}
 

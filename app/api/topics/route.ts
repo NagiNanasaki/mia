@@ -3,7 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 export async function POST(req: Request) {
-  const { messages } = await req.json();
+  const { messages, trendingContext } = await req.json();
   const conversationMessages = (messages ?? []).filter(
     (m: { role: string; character?: string; content: string }) =>
       !(m.role === 'assistant' && m.character === 'hint') &&
@@ -19,9 +19,13 @@ export async function POST(req: Request) {
     })
     .join('\n');
 
+  const trendingPart = trendingContext
+    ? `\n\nCurrent news & trends (use these as inspiration for timely, varied topics):\n${trendingContext}`
+    : '';
+
   const contextPart = recentTopics
-    ? `Current conversation:\n${recentTopics}\n\nSuggest topics that are COMPLETELY DIFFERENT from what's being discussed above.`
-    : 'Suggest fun, varied conversation topics.';
+    ? `Current conversation:\n${recentTopics}\n\nSuggest topics that are COMPLETELY DIFFERENT from what's being discussed above.${trendingPart}`
+    : `Suggest fun, varied conversation topics.${trendingPart}`;
 
   const msg = await client.messages.create({
     model: 'claude-haiku-4-5',

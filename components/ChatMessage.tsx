@@ -235,12 +235,10 @@ export default function ChatMessage({ message, vocabOwnerId }: ChatMessageProps)
     }
   };
 
-  // Parse markers: [img:url], [stamp:name] (emoji), [sticker:name] (AI image), [user-stamp:name] (user image)
-  const imgRegex = /\[img:(https?:\/\/[^\]]+)\]/g;
+  // Parse markers: [stamp:name] (emoji), [sticker:name] (AI image), [user-stamp:name] (user image)
   const stampRegex = /\[stamp:\s*([a-zA-Z]+)\s*\]/g;
   const stickerRegex = /\[sticker:\s*([a-zA-Z0-9]+)\s*\]/g;
   const userStampRegex = /\[user-stamp:\s*([a-zA-Z0-9]+)\s*\]/g;
-  const images: string[] = [];
   const stamps: string[] = [];
   const stickers: string[] = [];   // AI image stickers
   const userStamps: string[] = []; // user image stamps
@@ -249,13 +247,12 @@ export default function ChatMessage({ message, vocabOwnerId }: ChatMessageProps)
   const isUserStampOnly = isUser && /^\[user-stamp:[a-zA-Z0-9]+\]$/.test(message.content.trim());
 
   const displayText = message.content
-    .replace(imgRegex, (_, url: string) => { images.push(url); return ''; })
     .replace(stampRegex, (_, name: string) => { stamps.push(name.toLowerCase()); return ''; })
     .replace(stickerRegex, (_, name: string) => { stickers.push(name); return ''; })
     .replace(userStampRegex, (_, name: string) => { userStamps.push(name); return ''; })
     .trimStart();
 
-  const hasText = !!(displayText.trim() || images.length > 0);
+  const hasText = !!displayText.trim();
   const hasStamps = stamps.length > 0;
   const hasStickers = stickers.length > 0;
   const hasUserStamps = userStamps.length > 0;
@@ -356,7 +353,7 @@ export default function ChatMessage({ message, vocabOwnerId }: ChatMessageProps)
     {hasStamps && (
       <div className={`flex items-end gap-2 ${hasText ? 'mb-1' : 'mb-4'} ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
         {avatar}
-        <div className={`flex flex-col gap-1 max-w-[75%] ${isUser ? 'items-end' : 'items-start'}`}>
+        <div className={`flex flex-col gap-1 max-w-[82%] sm:max-w-[75%] ${isUser ? 'items-end' : 'items-start'}`}>
           {!isUser && char && (
             <span className="text-[11px] font-semibold text-gray-500 px-1">{char.name}</span>
           )}
@@ -376,33 +373,19 @@ export default function ChatMessage({ message, vocabOwnerId }: ChatMessageProps)
     {hasText && !isUserStampOnly && (
       <div className={`flex items-end gap-2 mb-4 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
         {avatar}
-        <div className={`flex flex-col gap-1 max-w-[75%] ${isUser ? 'items-end' : 'items-start'}`}>
+        <div className={`flex flex-col gap-1 max-w-[82%] sm:max-w-[75%] ${isUser ? 'items-end' : 'items-start'}`}>
           {/* Character name only when no stamp row above */}
           {!isUser && char && !hasStamps && (
             <span className="text-[11px] font-semibold text-gray-500 px-1">{char.name}</span>
           )}
 
           <div
-            className={`px-4 py-3 rounded-2xl shadow-sm text-sm leading-relaxed ${
+            className={`px-4 py-3 rounded-2xl shadow-sm text-sm leading-snug sm:leading-relaxed ${
               isUser
                 ? 'bg-indigo-600 text-white rounded-br-sm'
                 : `${char?.bubbleBg} rounded-bl-sm border dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100`
             }`}
           >
-            {images.length > 0 && (
-              <div className="flex flex-wrap gap-2 mb-2">
-                {images.map((url, i) => (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    key={i}
-                    src={`/api/image-proxy?url=${encodeURIComponent(url)}`}
-                    alt=""
-                    className="rounded-xl max-h-40 object-cover"
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                  />
-                ))}
-              </div>
-            )}
             <p className="whitespace-pre-wrap break-words">{displayText}</p>
           </div>
 

@@ -23,12 +23,13 @@ export async function POST(req: Request) {
     if (!items.length) return Response.json({ saved: 0 });
 
     const rows = items.map(item => {
-      const row: Record<string, string> = {
+      const row: Record<string, unknown> = {
         session_id: sessionId,
         phrase: item.phrase,
         translation: item.translation,
       };
       if (source) row.source = source;
+      if (typeof (item as { tagged?: boolean }).tagged === 'boolean') row.tagged = (item as { tagged?: boolean }).tagged;
       return row;
     });
 

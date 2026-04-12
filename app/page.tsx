@@ -10,6 +10,10 @@ import CatAvatar from '@/components/CatAvatar';
 import VocabModal from '@/components/VocabModal';
 import UsernameModal from '@/components/UsernameModal';
 import SyncModal from '@/components/SyncModal';
+import {
+  getSplitPartDelayMs as getSplitPartDelayMsFromLib,
+  splitMessageContentForMobileNatural as splitMessageContentForMobileNaturalFromLib,
+} from '@/lib/mobile-reply-splitting';
 
 // --- 感情状態 ---
 type MoodMia = 'neutral' | 'excited' | 'annoyed' | 'amused' | 'bored'
@@ -491,26 +495,14 @@ function findBalancedSplitIndexForMobile(segment: string, maxUnits: number): num
 }
 
 const CONTENT_MARKER_REGEX = /(\[(?:img|stamp|sticker|user-stamp):[^\]]+\])/gi;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const CONTENT_MARKER_ONLY_REGEX = /^\[(?:img|stamp|sticker|user-stamp):[^\]]+\]$/i;
 const SENTENCE_END_CHAR_REGEX = /[.!?\u3002\uff01\uff1f]/;
+const STRONG_BREAK_CHAR_REGEX = /[;:\uff1b\uff1a]/;
+const COMMA_BREAK_CHAR_REGEX = /[,\u3001\uff0c]/;
 const SENTENCE_TRAILING_CLOSER_REGEX = /["'\u2019\u201d)\]]/;
 
-function getSplitPartDelayMs(content: string): number {
-  const visibleText = content
-    .replace(CONTENT_MARKER_REGEX, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  if (!visibleText) {
-    return 550 + Math.round(Math.random() * 250);
-  }
-
-  const wordCount = visibleText.split(' ').filter(Boolean).length;
-  const visualDelay = Math.min(1400, getVisualUnits(visibleText) * 28);
-  const wordDelay = Math.min(800, wordCount * 70);
-
-  return Math.round(Math.min(3200, 500 + visualDelay + wordDelay + Math.random() * 450));
-}
+type NaturalBoundaryType = 'sentence' | 'newline' | 'strong' | 'comma' | 'end';
 
 function appendSplitTextSegments(segment: string, maxUnits: number, result: string[]) {
   const trimmed = segment.trim();
@@ -614,21 +606,30 @@ function pushTrimmedSplitChunk(result: string[], value: string) {
   if (trimmed) result.push(trimmed);
 }
 
-function splitTextBySentenceOrNewlineBoundaries(segment: string): string[] {
+function pushNaturalBoundarySegment(
+  result: Array<{ text: string; type: NaturalBoundaryType }>,
+  value: string,
+  type: NaturalBoundaryType
+) {
+  const trimmed = value.trim();
+  if (trimmed) result.push({ text: trimmed, type });
+}
+
+function getNaturalBoundarySegments(segment: string): Array<{ text: string; type: NaturalBoundaryType }> {
   const text = segment.replace(/\r/g, '').trim();
   if (!text) return [];
 
-  const result: string[] = [];
+  const result: Array<{ text: string; type: NaturalBoundaryType }> = [];
   let current = '';
 
   for (let i = 0; i < text.length; i++) {
     const char = text[i];
 
     if (char === '\n') {
-      pushTrimmedSplitChunk(result, current);
+      pushNaturalBoundarySegment(result, current, 'newline');
       current = '';
 
-      while (i + 1 < text.length && /\s/.test(text[i + 1])) {
+      while (i + 1 < text.length && /[ \t]/.test(text[i + 1])) {
         i++;
       }
       continue;
@@ -636,69 +637,100 @@ function splitTextBySentenceOrNewlineBoundaries(segment: string): string[] {
 
     current += char;
 
-    if (!SENTENCE_END_CHAR_REGEX.test(char)) {
+    const isSentenceBoundary = SENTENCE_END_CHAR_REGEX.test(char);
+    const isStrongBoundary = STRONG_BREAK_CHAR_REGEX.test(char);
+    const isCommaBoundary = COMMA_BREAK_CHAR_REGEX.test(char);
+
+    if (!isSentenceBoundary && !isStrongBoundary && !isCommaBoundary) {
       continue;
     }
 
     let j = i + 1;
-    while (
-      j < text.length &&
-      (SENTENCE_END_CHAR_REGEX.test(text[j]) || SENTENCE_TRAILING_CLOSER_REGEX.test(text[j]))
-    ) {
+
+    if (isSentenceBoundary) {
+      while (
+        j < text.length &&
+        (SENTENCE_END_CHAR_REGEX.test(text[j]) || SENTENCE_TRAILING_CLOSER_REGEX.test(text[j]))
+      ) {
+        current += text[j];
+        j++;
+      }
+    } else {
+      while (j < text.length && SENTENCE_TRAILING_CLOSER_REGEX.test(text[j])) {
+        current += text[j];
+        j++;
+      }
+    }
+
+    while (j < text.length && /[ \t]/.test(text[j])) {
       current += text[j];
       j++;
     }
 
-    if (j >= text.length || /\s/.test(text[j])) {
-      pushTrimmedSplitChunk(result, current);
-      current = '';
+    pushNaturalBoundarySegment(
+      result,
+      current,
+      isSentenceBoundary ? 'sentence' : isStrongBoundary ? 'strong' : 'comma'
+    );
+    current = '';
+    i = j - 1;
+  }
 
-      while (j < text.length && /\s/.test(text[j])) {
-        j++;
-      }
+  pushNaturalBoundarySegment(result, current, 'end');
+  return result;
+}
 
-      i = j - 1;
-    } else {
-      i = j - 1;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function splitTextBySentenceOrNewlineBoundaries(segment: string): string[] {
+  const boundaries = getNaturalBoundarySegments(segment);
+  if (boundaries.length === 0) return [];
+
+  const maxUnits = getSplitMaxVisualUnits();
+  const minUnits = maxUnits * 0.55;
+  const result: string[] = [];
+  let current = '';
+  let currentUnits = 0;
+
+  // Only break at explicit markers or natural punctuation/newline boundaries.
+  for (const boundary of boundaries) {
+    const part = boundary.text;
+    if (!part) continue;
+
+    const combined = current ? `${current} ${part}` : part;
+    const combinedUnits = getVisualUnits(combined);
+
+    if (!current) {
+      current = part;
+      currentUnits = getVisualUnits(part);
+      continue;
     }
+
+    if (combinedUnits <= maxUnits) {
+      current = combined;
+      currentUnits = combinedUnits;
+      continue;
+    }
+
+    if (currentUnits >= minUnits) {
+      pushTrimmedSplitChunk(result, current);
+      current = part;
+      currentUnits = getVisualUnits(part);
+      continue;
+    }
+
+    current = combined;
+    currentUnits = combinedUnits;
   }
 
   pushTrimmedSplitChunk(result, current);
-  return result.length > 0 ? result : [text];
-}
-
-function splitMessageContentForMobileNatural(content: string): string[] {
-  const byMarker = content
-    .split(/[ \t]*\[split\][ \t]*/gi)
-    .map((part) => part.trim())
-    .filter(Boolean);
-
-  const result: string[] = [];
-
-  for (const segment of byMarker) {
-    const chunks = segment
-      .split(CONTENT_MARKER_REGEX)
-      .map((part) => part.trim())
-      .filter(Boolean);
-
-    for (const chunk of chunks) {
-      if (CONTENT_MARKER_ONLY_REGEX.test(chunk)) {
-        result.push(chunk);
-        continue;
-      }
-
-      result.push(...splitTextBySentenceOrNewlineBoundaries(chunk));
-    }
-  }
-
-  return result.length > 0 ? result : [content];
+  return result.length > 0 ? result : boundaries.map((boundary) => boundary.text).filter(Boolean);
 }
 
 function normalizeMessages(messages: Message[]): Message[] {
   return messages.flatMap((message) => {
     if (message.role !== 'assistant') return [message];
 
-    const parts = splitMessageContentForMobileNatural(message.content);
+    const parts = splitMessageContentForMobileNaturalFromLib(message.content);
     if (parts.length <= 1) return [message];
 
     return parts.map((part) => ({
@@ -814,6 +846,7 @@ export default function HomePage() {
   const sessionIdRef = useRef<string>('');
   const vocabOwnerIdRef = useRef<string>('');
   const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const refreshMenuRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const messagesRef = useRef<Message[]>([]);
@@ -891,7 +924,12 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    if (distanceFromBottom < 120) {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages]);
 
   // Keep messagesRef in sync for use inside debounce callbacks
@@ -1014,7 +1052,7 @@ export default function HomePage() {
     fetch('/api/topics', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages: conversationMessages }),
+      body: JSON.stringify({ messages: conversationMessages, trendingContext }),
     })
       .then(r => r.json())
       .then(({ topics }) => { if (topics?.length) setSuggestions(topics); })
@@ -1190,7 +1228,7 @@ export default function HomePage() {
         }, username, trendingContext, combinedContext, userProfile);
 
         // Split into parts after streaming completes
-        const parts = splitMessageContentForMobileNatural(raw);
+        const parts = splitMessageContentForMobileNaturalFromLib(raw);
         const now = new Date().toISOString();
 
         if (parts.length <= 1) {
@@ -1216,7 +1254,7 @@ export default function HomePage() {
 
           for (let i = 1; i < parts.length; i++) {
             setMessages((prev) => [...prev, { role: 'assistant', character: char, content: '' }]);
-            await new Promise(resolve => setTimeout(resolve, getSplitPartDelayMs(parts[i])));
+            await new Promise(resolve => setTimeout(resolve, getSplitPartDelayMsFromLib(parts[i])));
             const partNow = new Date().toISOString();
             const partMessage: Message = { role: 'assistant', character: char, content: parts[i], created_at: partNow };
             setMessages((prev) => {
@@ -1430,7 +1468,7 @@ export default function HomePage() {
       </header>
 
       {/* Messages */}
-      <main className="flex-1 overflow-y-auto px-4 py-6 space-y-1">
+      <main ref={scrollContainerRef} className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-6 space-y-1">
         {isLoading ? (
           <div className="flex items-center justify-center h-full">
             <div className="flex gap-1 items-center text-purple-400">
