@@ -896,8 +896,10 @@ export default function HomePage() {
   const [pendingCharacter, setPendingCharacter] = useState<'mia' | 'mimi' | null>(null);
   const [isIdleChatActive, setIsIdleChatActive] = useState(false);
   const [triviaText, setTriviaText] = useState<string | null>(null);
+  const [triviaVisible, setTriviaVisible] = useState(false);
   const [triviaTranslation, setTriviaTranslation] = useState<string | null>(null);
   const [isTriviaTranslating, setIsTriviaTranslating] = useState(false);
+  const triviaTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isMobileDevice, setIsMobileDevice] = useState(false);
   const sessionIdRef = useRef<string>('');
   const vocabOwnerIdRef = useRef<string>('');
@@ -1718,6 +1720,15 @@ export default function HomePage() {
         const data = await response.json() as { trivia?: string };
         if (data.trivia) {
           setTriviaText(data.trivia);
+          // 少し遅らせてアニメーション開始（DOMレンダリング後）
+          setTimeout(() => {
+            setTriviaVisible(true);
+            // 8秒後に自動で消える
+            triviaTimerRef.current = setTimeout(() => {
+              setTriviaVisible(false);
+              setTimeout(() => { setTriviaText(null); setTriviaTranslation(null); }, 400);
+            }, 8000);
+          }, 100);
         }
       } catch {
         // Ignore trivia failures and leave the main chat untouched.
@@ -1731,54 +1742,66 @@ export default function HomePage() {
       {showUsernameModal && <UsernameModal onSave={saveUsername} />}
 
       {triviaText && (
-        <div className="pointer-events-none fixed inset-x-0 bottom-24 z-40 flex justify-center px-4">
-          <div className="pointer-events-auto flex w-full max-w-sm flex-col gap-2 rounded-3xl border border-orange-200 dark:border-orange-900 bg-white/95 dark:bg-gray-800/95 p-4 shadow-xl backdrop-blur">
-            <div className="flex items-start gap-3">
-              <div className="overflow-hidden rounded-full shadow-sm">
-                <CatAvatar variant="mimi" size={40} />
+        <div
+          className="pointer-events-none fixed inset-x-0 top-0 z-50 flex justify-center px-3"
+          style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
+        >
+          <div
+            className={`pointer-events-auto w-full max-w-sm rounded-2xl bg-white/90 dark:bg-gray-800/90 shadow-2xl backdrop-blur-md border border-white/60 dark:border-gray-700/60 transition-all duration-400 ease-out ${triviaVisible ? 'translate-y-0 opacity-100' : '-translate-y-full opacity-0'}`}
+            onClick={() => {
+              if (triviaTimerRef.current) clearTimeout(triviaTimerRef.current);
+              setTriviaVisible(false);
+              setTimeout(() => { setTriviaText(null); setTriviaTranslation(null); }, 400);
+            }}
+          >
+            {/* コンパクト行（常に表示） */}
+            <div className="flex items-center gap-3 px-4 py-3">
+              <div className="overflow-hidden rounded-full shadow-sm flex-shrink-0">
+                <CatAvatar variant="mimi" size={36} />
               </div>
               <div className="min-w-0 flex-1">
-                <p className="text-xs font-semibold uppercase tracking-wide text-orange-500 dark:text-orange-400">Mimi daily trivia</p>
-                <p className="mt-1 text-sm leading-snug text-gray-800 dark:text-gray-100">{triviaText}</p>
-                {triviaTranslation && (
-                  <p className="mt-2 text-xs leading-relaxed text-gray-600 dark:text-gray-300 bg-yellow-50 dark:bg-gray-700 border border-yellow-200 dark:border-gray-600 rounded-xl px-3 py-2 whitespace-pre-wrap">
-                    {triviaTranslation}
-                  </p>
-                )}
+                <div className="flex items-baseline justify-between gap-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-orange-500 dark:text-orange-400">Mimi · trivia</p>
+                  <p className="text-[10px] text-gray-400 dark:text-gray-500 flex-shrink-0">tap to close</p>
+                </div>
+                <p className="mt-0.5 text-sm leading-snug text-gray-800 dark:text-gray-100 line-clamp-2">{triviaText}</p>
               </div>
-            </div>
-            <div className="flex items-center justify-between border-t border-orange-100 dark:border-orange-900/50 pt-2">
               <button
                 type="button"
-                onClick={async () => {
-                  if (triviaTranslation !== null) { setTriviaTranslation(null); return; }
-                  setIsTriviaTranslating(true);
-                  try {
-                    const res = await fetch('/api/translate', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ text: triviaText, character: 'mimi' }),
-                    });
-                    const { result } = await res.json() as { result: string };
-                    setTriviaTranslation(result);
-                  } catch {
-                    setTriviaTranslation('翻訳できませんでした');
-                  } finally {
-                    setIsTriviaTranslating(false);
-                  }
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void (async () => {
+                    if (triviaTranslation !== null) { setTriviaTranslation(null); return; }
+                    setIsTriviaTranslating(true);
+                    try {
+                      const res = await fetch('/api/translate', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ text: triviaText, character: 'mimi' }),
+                      });
+                      const { result } = await res.json() as { result: string };
+                      setTriviaTranslation(result);
+                    } catch {
+                      setTriviaTranslation('翻訳できませんでした');
+                    } finally {
+                      setIsTriviaTranslating(false);
+                    }
+                  })();
                 }}
-                className={`text-xs font-bold transition-colors ${triviaTranslation !== null ? 'text-yellow-500 hover:text-yellow-600' : 'text-gray-400 hover:text-yellow-500'}`}
+                className={`flex-shrink-0 text-xs font-bold px-2 py-1 rounded-lg transition-colors ${triviaTranslation !== null ? 'text-yellow-500 bg-yellow-50 dark:bg-yellow-900/30' : 'text-gray-400 hover:text-yellow-500'}`}
               >
-                {isTriviaTranslating ? '...' : '訳'}
-              </button>
-              <button
-                type="button"
-                onClick={() => { setTriviaText(null); setTriviaTranslation(null); }}
-                className="text-[11px] text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
-              >
-                閉じる
+                {isTriviaTranslating ? '…' : '訳'}
               </button>
             </div>
+            {/* 翻訳展開エリア */}
+            {triviaTranslation && (
+              <div
+                className="px-4 pb-3 text-xs leading-relaxed text-gray-600 dark:text-gray-300 border-t border-gray-100 dark:border-gray-700 pt-2"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {triviaTranslation}
+              </div>
+            )}
           </div>
         </div>
       )}
