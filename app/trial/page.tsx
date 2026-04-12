@@ -26,6 +26,7 @@ export default function TrialPage() {
   const [messages, setMessages] = useState<TrialMessage[]>([]);
   const [input, setInput] = useState('');
   const [verdict, setVerdict] = useState('');
+  const [verdictOutcome, setVerdictOutcome] = useState<'guilty' | 'not_guilty' | 'dismissed' | null>(null);
   const [expGained, setExpGained] = useState(0);
   const [isMimiTyping, setIsMimiTyping] = useState(false);
   const [username, setUsername] = useState<string | null>(null);
@@ -90,6 +91,7 @@ export default function TrialPage() {
 
   useEffect(() => {
     if (phase !== 'done' || hasAwardedExpRef.current || !ownerId) return;
+    if (verdictOutcome === 'guilty') return; // 敗訴は EXP なし
 
     hasAwardedExpRef.current = true;
     void (async () => {
@@ -101,10 +103,11 @@ export default function TrialPage() {
         });
         setExpGained(20);
       } catch {
+        // 保存失敗しても UI は更新する
         setExpGained(20);
       }
     })();
-  }, [phase, ownerId]);
+  }, [phase, ownerId, verdictOutcome]);
 
   const submitVerdict = async () => {
     setPhase('verdict');
@@ -121,12 +124,14 @@ export default function TrialPage() {
           mimiReplies: mimiRepliesRef.current,
         }),
       });
-      const data = await response.json() as { verdict: string };
+      const data = await response.json() as { verdict: string; outcome: 'guilty' | 'not_guilty' | 'dismissed' };
       setVerdict(data.verdict);
+      setVerdictOutcome(data.outcome);
       setMessages((prev) => [...prev, { role: 'mia', content: data.verdict, id: makeId('mia') }]);
     } catch {
       const fallback = 'case dismissed. Mimi had passion, but the evidence was a bit tragic.';
       setVerdict(fallback);
+      setVerdictOutcome('dismissed');
       setMessages((prev) => [...prev, { role: 'mia', content: fallback, id: makeId('mia') }]);
     } finally {
       setPhase('done');
@@ -284,10 +289,14 @@ export default function TrialPage() {
 
           {phase === 'done' && (
             <div className="mt-5 border-t border-gray-100 pt-4">
-              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
-                <p className="text-sm font-semibold text-emerald-700">Trial complete</p>
-                <p className="mt-1 text-sm text-emerald-800">{verdict}</p>
-                <p className="mt-2 text-xs text-emerald-600">EXP gained: +{expGained || 20}</p>
+              <div className={`rounded-2xl border px-4 py-3 ${verdictOutcome === 'guilty' ? 'border-rose-200 bg-rose-50' : 'border-emerald-200 bg-emerald-50'}`}>
+                <p className={`text-sm font-semibold ${verdictOutcome === 'guilty' ? 'text-rose-700' : 'text-emerald-700'}`}>
+                  {verdictOutcome === 'guilty' ? 'Guilty — no EXP this time.' : 'Trial complete'}
+                </p>
+                <p className={`mt-1 text-sm ${verdictOutcome === 'guilty' ? 'text-rose-800' : 'text-emerald-800'}`}>{verdict}</p>
+                {verdictOutcome !== 'guilty' && (
+                  <p className="mt-2 text-xs text-emerald-600">EXP gained: +{expGained || 20}</p>
+                )}
               </div>
             </div>
           )}
