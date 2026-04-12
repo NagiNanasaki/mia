@@ -102,7 +102,12 @@ const DEFAULT_SUGGESTIONS = [
 const IDLE_TRIGGER_DELAY_MS = 60_000;
 const IDLE_NEXT_DELAY_MS = 90_000;
 const IDLE_MAX_CONSECUTIVE = 5;
-const TRIVIA_GENRES = ['animals', 'space', 'food', 'history'] as const;
+const TRIVIA_GENRES = [
+  'animals', 'space', 'food', 'history',
+  'science', 'internet', 'money', 'sleep',
+  'weather', 'music', 'sports', 'fashion',
+  'language', 'bugs', 'ancient_rome',
+] as const;
 
 function pickTriviaGenre() {
   return TRIVIA_GENRES[Math.floor(Math.random() * TRIVIA_GENRES.length)];
@@ -1764,7 +1769,7 @@ export default function HomePage() {
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-orange-500 dark:text-orange-400">Mimi · trivia</p>
                   <p className="text-[10px] text-gray-400 dark:text-gray-500 flex-shrink-0">tap to close</p>
                 </div>
-                <p className="mt-0.5 text-sm leading-snug text-gray-800 dark:text-gray-100 line-clamp-2">{triviaText}</p>
+                <p className="mt-0.5 text-sm leading-snug text-gray-800 dark:text-gray-100">{triviaText}</p>
               </div>
               <button
                 type="button"
