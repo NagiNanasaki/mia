@@ -9,6 +9,8 @@ type TrialMessage = {
   role: 'mimi' | 'mia' | 'user';
   content: string;
   id: string;
+  translation?: string | null;
+  isTranslating?: boolean;
 };
 
 type TrialPhase = 'loading' | 'defending' | 'verdict' | 'done';
@@ -188,40 +190,68 @@ export default function TrialPage() {
     }
   };
 
+  const toggleTranslation = async (messageId: string, content: string, character: 'mia' | 'mimi') => {
+    setMessages((prev) =>
+      prev.map((m) => {
+        if (m.id !== messageId) return m;
+        if (m.translation !== null && m.translation !== undefined) {
+          return { ...m, translation: null };
+        }
+        return { ...m, isTranslating: true };
+      }),
+    );
+
+    try {
+      const res = await fetch('/api/translate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: content, character }),
+      });
+      const { result } = await res.json() as { result: string };
+      setMessages((prev) =>
+        prev.map((m) => (m.id === messageId ? { ...m, translation: result, isTranslating: false } : m)),
+      );
+    } catch {
+      setMessages((prev) =>
+        prev.map((m) => (m.id === messageId ? { ...m, translation: '翻訳できませんでした', isTranslating: false } : m)),
+      );
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-orange-50 via-rose-50 to-purple-100 px-4 py-6 text-gray-900">
+    <div className="min-h-screen bg-gradient-to-br from-orange-50 via-rose-50 to-purple-100 dark:from-gray-900 dark:via-gray-900 dark:to-gray-800 px-4 py-6 text-gray-900 dark:text-gray-100">
       <div className="mx-auto max-w-3xl">
         <div className="mb-4 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold">Mock Trial</h1>
-            <p className="text-sm text-gray-500">Mimi is prosecuting. Mia is judging.</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Mimi is prosecuting. Mia is judging.</p>
           </div>
-          <Link href="/" className="rounded-full border border-gray-200 bg-white px-4 py-2 text-sm text-gray-600 shadow-sm transition hover:border-purple-200 hover:text-purple-600">
+          <Link href="/" className="rounded-full border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 px-4 py-2 text-sm text-gray-600 dark:text-gray-300 shadow-sm transition hover:border-purple-200 dark:hover:border-purple-700 hover:text-purple-600 dark:hover:text-purple-400">
             Back to chat
           </Link>
         </div>
 
-        <div className="mb-4 rounded-2xl border border-orange-200 bg-white/90 p-4 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-wide text-orange-500">Charge</p>
+        <div className="mb-4 rounded-2xl border border-orange-200 dark:border-orange-900 bg-white/90 dark:bg-gray-800/90 p-4 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-orange-500 dark:text-orange-400">Charge</p>
           <p className="mt-1 text-base font-medium">{charge || 'Preparing the most serious case imaginable...'}</p>
         </div>
 
-        <div className="mb-4 rounded-2xl border border-gray-200 bg-white/90 p-4 shadow-sm">
+        <div className="mb-4 rounded-2xl border border-gray-200 dark:border-gray-700 bg-white/90 dark:bg-gray-800/90 p-4 shadow-sm">
           <div className="mb-3 flex items-center justify-between">
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Evidence</p>
-            <p className="text-xs text-gray-400">Only relevant exhibits are shown</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Evidence</p>
+            <p className="text-xs text-gray-400 dark:text-gray-500">Only relevant exhibits are shown</p>
           </div>
           <div className="space-y-2">
             {(visibleEvidence.length > 0 ? visibleEvidence : evidence).map((item) => (
-              <div key={item.id} className="rounded-xl border border-orange-100 bg-orange-50/70 px-3 py-2">
-                <p className="text-xs font-semibold text-orange-500">{item.label}</p>
-                <p className="text-sm text-gray-700">{item.content}</p>
+              <div key={item.id} className="rounded-xl border border-orange-100 dark:border-orange-900 bg-orange-50/70 dark:bg-orange-950/40 px-3 py-2">
+                <p className="text-xs font-semibold text-orange-500 dark:text-orange-400">{item.label}</p>
+                <p className="text-sm text-gray-700 dark:text-gray-300">{item.content}</p>
               </div>
             ))}
           </div>
         </div>
 
-        <div className="rounded-3xl border border-white/70 bg-white/80 p-4 shadow-lg backdrop-blur">
+        <div className="rounded-3xl border border-white/70 dark:border-gray-700 bg-white/80 dark:bg-gray-800/80 p-4 shadow-lg backdrop-blur">
           <div className="space-y-4">
             {messages.map((message) => {
               const isUser = message.role === 'user';
@@ -234,15 +264,33 @@ export default function TrialPage() {
                       <CatAvatar variant={isMia ? 'mia' : 'mimi'} size={40} />
                     </div>
                   )}
-                  <div className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm ${
-                    isUser
-                      ? 'rounded-br-sm bg-indigo-600 text-white'
-                      : isMia
-                        ? 'rounded-bl-sm border border-purple-200 bg-purple-100 text-gray-800'
-                        : 'rounded-bl-sm border border-orange-200 bg-orange-100 text-gray-800'
-                  }`}>
-                    <p className="mb-1 text-[11px] font-semibold opacity-70">{isUser ? username ?? 'You' : isMia ? 'Mia' : 'Mimi'}</p>
-                    <p className="whitespace-pre-wrap break-words">{message.content}</p>
+                  <div className="max-w-[80%] space-y-1">
+                    <div className={`rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm ${
+                      isUser
+                        ? 'rounded-br-sm bg-indigo-600 text-white'
+                        : isMia
+                          ? 'rounded-bl-sm border border-purple-200 dark:border-purple-800 bg-purple-100 dark:bg-purple-950/60 text-gray-800 dark:text-gray-100'
+                          : 'rounded-bl-sm border border-orange-200 dark:border-orange-800 bg-orange-100 dark:bg-orange-950/60 text-gray-800 dark:text-gray-100'
+                    }`}>
+                      <p className="mb-1 text-[11px] font-semibold opacity-70">{isUser ? username ?? 'You' : isMia ? 'Mia' : 'Mimi'}</p>
+                      <p className="whitespace-pre-wrap break-words">{message.content}</p>
+                    </div>
+                    {!isUser && message.translation !== null && message.translation !== undefined && (
+                      <div className="text-xs text-gray-600 dark:text-gray-300 bg-yellow-50 dark:bg-gray-700 border border-yellow-200 dark:border-gray-600 rounded-xl px-3 py-2 leading-relaxed whitespace-pre-wrap">
+                        {message.translation}
+                      </div>
+                    )}
+                    {!isUser && (
+                      <div className="flex justify-end pr-1">
+                        <button
+                          onClick={() => void toggleTranslation(message.id, message.content, isMia ? 'mia' : 'mimi')}
+                          className={`text-xs font-bold transition-colors ${message.translation !== null && message.translation !== undefined ? 'text-yellow-500 hover:text-yellow-600' : 'text-gray-400 hover:text-yellow-500'}`}
+                          title="日本語訳を見る"
+                        >
+                          {message.isTranslating ? '...' : '訳'}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -253,7 +301,7 @@ export default function TrialPage() {
                 <div className="overflow-hidden rounded-full shadow-md">
                   <CatAvatar variant="mimi" size={40} />
                 </div>
-                <div className="rounded-2xl rounded-bl-sm border border-orange-200 bg-orange-100 px-4 py-3 shadow-sm">
+                <div className="rounded-2xl rounded-bl-sm border border-orange-200 dark:border-orange-800 bg-orange-100 dark:bg-orange-950/60 px-4 py-3 shadow-sm">
                   <div className="flex gap-1">
                     <span className="h-2 w-2 rounded-full bg-orange-400 animate-bounce [animation-delay:0ms]" />
                     <span className="h-2 w-2 rounded-full bg-orange-400 animate-bounce [animation-delay:150ms]" />
@@ -265,8 +313,8 @@ export default function TrialPage() {
           </div>
 
           {phase === 'defending' && (
-            <div className="mt-5 border-t border-gray-100 pt-4">
-              <div className="mb-2 flex items-center justify-between text-xs text-gray-500">
+            <div className="mt-5 border-t border-gray-100 dark:border-gray-700 pt-4">
+              <div className="mb-2 flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
                 <span>Your defense</span>
                 <span>{defenseCount}/{MAX_DEFENSE_TURNS}</span>
               </div>
@@ -281,7 +329,7 @@ export default function TrialPage() {
                     }
                   }}
                   rows={3}
-                  className="min-h-[84px] flex-1 rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm outline-none transition focus:border-purple-300 focus:bg-white"
+                  className="min-h-[84px] flex-1 rounded-2xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-4 py-3 text-sm outline-none transition focus:border-purple-300 dark:focus:border-purple-600 focus:bg-white dark:focus:bg-gray-600 dark:text-gray-100 dark:placeholder-gray-400"
                   placeholder="Present your defense..."
                 />
                 <button
@@ -296,14 +344,14 @@ export default function TrialPage() {
           )}
 
           {phase === 'done' && (
-            <div className="mt-5 border-t border-gray-100 pt-4">
-              <div className={`rounded-2xl border px-4 py-3 ${verdictOutcome === 'guilty' ? 'border-rose-200 bg-rose-50' : 'border-emerald-200 bg-emerald-50'}`}>
-                <p className={`text-sm font-semibold ${verdictOutcome === 'guilty' ? 'text-rose-700' : 'text-emerald-700'}`}>
+            <div className="mt-5 border-t border-gray-100 dark:border-gray-700 pt-4">
+              <div className={`rounded-2xl border px-4 py-3 ${verdictOutcome === 'guilty' ? 'border-rose-200 dark:border-rose-900 bg-rose-50 dark:bg-rose-950/40' : 'border-emerald-200 dark:border-emerald-900 bg-emerald-50 dark:bg-emerald-950/40'}`}>
+                <p className={`text-sm font-semibold ${verdictOutcome === 'guilty' ? 'text-rose-700 dark:text-rose-400' : 'text-emerald-700 dark:text-emerald-400'}`}>
                   {verdictOutcome === 'guilty' ? 'Guilty — no EXP this time.' : 'Trial complete'}
                 </p>
-                <p className={`mt-1 text-sm ${verdictOutcome === 'guilty' ? 'text-rose-800' : 'text-emerald-800'}`}>{verdict}</p>
+                <p className={`mt-1 text-sm ${verdictOutcome === 'guilty' ? 'text-rose-800 dark:text-rose-300' : 'text-emerald-800 dark:text-emerald-300'}`}>{verdict}</p>
                 {verdictOutcome !== 'guilty' && (
-                  <p className="mt-2 text-xs text-emerald-600">EXP gained: +{expGained || 20}</p>
+                  <p className="mt-2 text-xs text-emerald-600 dark:text-emerald-400">EXP gained: +{expGained || 20}</p>
                 )}
               </div>
             </div>

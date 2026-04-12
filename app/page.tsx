@@ -896,6 +896,8 @@ export default function HomePage() {
   const [pendingCharacter, setPendingCharacter] = useState<'mia' | 'mimi' | null>(null);
   const [isIdleChatActive, setIsIdleChatActive] = useState(false);
   const [triviaText, setTriviaText] = useState<string | null>(null);
+  const [triviaTranslation, setTriviaTranslation] = useState<string | null>(null);
+  const [isTriviaTranslating, setIsTriviaTranslating] = useState(false);
   const [isMobileDevice, setIsMobileDevice] = useState(false);
   const sessionIdRef = useRef<string>('');
   const vocabOwnerIdRef = useRef<string>('');
@@ -1730,20 +1732,54 @@ export default function HomePage() {
 
       {triviaText && (
         <div className="pointer-events-none fixed inset-x-0 bottom-24 z-40 flex justify-center px-4">
-          <button
-            type="button"
-            onClick={() => setTriviaText(null)}
-            className="pointer-events-auto flex w-full max-w-sm items-start gap-3 rounded-3xl border border-orange-200 dark:border-orange-900 bg-white/95 dark:bg-gray-800/95 p-4 text-left shadow-xl backdrop-blur transition hover:-translate-y-0.5"
-          >
-            <div className="overflow-hidden rounded-full shadow-sm">
-              <CatAvatar variant="mimi" size={40} />
+          <div className="pointer-events-auto flex w-full max-w-sm flex-col gap-2 rounded-3xl border border-orange-200 dark:border-orange-900 bg-white/95 dark:bg-gray-800/95 p-4 shadow-xl backdrop-blur">
+            <div className="flex items-start gap-3">
+              <div className="overflow-hidden rounded-full shadow-sm">
+                <CatAvatar variant="mimi" size={40} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold uppercase tracking-wide text-orange-500 dark:text-orange-400">Mimi daily trivia</p>
+                <p className="mt-1 text-sm leading-snug text-gray-800 dark:text-gray-100">{triviaText}</p>
+                {triviaTranslation && (
+                  <p className="mt-2 text-xs leading-relaxed text-gray-600 dark:text-gray-300 bg-yellow-50 dark:bg-gray-700 border border-yellow-200 dark:border-gray-600 rounded-xl px-3 py-2 whitespace-pre-wrap">
+                    {triviaTranslation}
+                  </p>
+                )}
+              </div>
             </div>
-            <div className="min-w-0">
-              <p className="text-xs font-semibold uppercase tracking-wide text-orange-500 dark:text-orange-400">Mimi daily trivia</p>
-              <p className="mt-1 text-sm leading-snug text-gray-800 dark:text-gray-100">{triviaText}</p>
-              <p className="mt-2 text-[11px] text-gray-400 dark:text-gray-500">Tap to close</p>
+            <div className="flex items-center justify-between border-t border-orange-100 dark:border-orange-900/50 pt-2">
+              <button
+                type="button"
+                onClick={async () => {
+                  if (triviaTranslation !== null) { setTriviaTranslation(null); return; }
+                  setIsTriviaTranslating(true);
+                  try {
+                    const res = await fetch('/api/translate', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ text: triviaText, character: 'mimi' }),
+                    });
+                    const { result } = await res.json() as { result: string };
+                    setTriviaTranslation(result);
+                  } catch {
+                    setTriviaTranslation('翻訳できませんでした');
+                  } finally {
+                    setIsTriviaTranslating(false);
+                  }
+                }}
+                className={`text-xs font-bold transition-colors ${triviaTranslation !== null ? 'text-yellow-500 hover:text-yellow-600' : 'text-gray-400 hover:text-yellow-500'}`}
+              >
+                {isTriviaTranslating ? '...' : '訳'}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setTriviaText(null); setTriviaTranslation(null); }}
+                className="text-[11px] text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+              >
+                閉じる
+              </button>
             </div>
-          </button>
+          </div>
         </div>
       )}
 

@@ -83,7 +83,8 @@ Use this JSON shape:
       .map((block) => block.text)
       .join('');
 
-    const parsed = JSON.parse(text) as { charge?: string; evidence?: TrialEvidenceItem[] };
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    const parsed = JSON.parse(jsonMatch?.[0] ?? text) as { charge?: string; evidence?: TrialEvidenceItem[] };
     const evidence = Array.isArray(parsed.evidence) && parsed.evidence.length > 0 ? parsed.evidence.slice(0, 5) : fallbackEvidence;
 
     return NextResponse.json({
