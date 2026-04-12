@@ -7,12 +7,19 @@ const client = new Anthropic({
 });
 
 export async function POST(req: NextRequest) {
-  const { charge, evidence = [], userDefense = [], miaReplies = [] } = await req.json() as {
+  const { charge, evidence = [], userQuestions = [], mimiAnswers = [], miaReactions = [] } = await req.json() as {
     charge: string;
     evidence: TrialEvidenceItem[];
-    userDefense: string[];
-    miaReplies: string[];
+    userQuestions: string[];
+    mimiAnswers: string[];
+    miaReactions: string[];
   };
+
+  const examination = userQuestions.map((q, i) => [
+    `Defense: ${cleanTrialContent(q)}`,
+    mimiAnswers[i] ? `Mimi: ${cleanTrialContent(mimiAnswers[i])}` : null,
+    miaReactions[i] ? `Prosecution: ${cleanTrialContent(miaReactions[i])}` : null,
+  ].filter(Boolean).join('\n')).join('\n\n');
 
   const prompt = `You are the Honourable Judge presiding over a silly mock trial.
 Mimi (the defendant) is accused of: ${charge}
@@ -20,15 +27,12 @@ Mimi (the defendant) is accused of: ${charge}
 Evidence submitted:
 ${evidence.map((item) => `${item.label}: ${cleanTrialContent(item.content)}${item.isRelevant ? ' [relevant]' : ''}`).join('\n')}
 
-Defense arguments (by the user as defense counsel):
-${userDefense.map((d, i) => `${i + 1}. ${cleanTrialContent(d)}`).join('\n') || 'No defense provided.'}
-
-Prosecution rebuttals (by Mia):
-${miaReplies.map((r, i) => `${i + 1}. ${cleanTrialContent(r)}`).join('\n') || 'No prosecution rebuttal.'}
+Examination transcript:
+${examination || 'No examination was conducted.'}
 
 Rules:
 - You are the Judge: authoritative, dry, slightly absurd sense of humour
-- Weigh the defense against the prosecution
+- Weigh Mimi's testimony against the charge and evidence
 - Decide: guilty / not guilty / case dismissed
 - Include the exact phrase "guilty", "not guilty", or "case dismissed" in your verdict
 - 2-3 sentences max, delivered with gravitas
@@ -48,13 +52,10 @@ Rules:
       .join(' ')
       .trim());
 
-    const safeVerdict = verdict || 'case dismissed. The prosecution was enthusiastic. The evidence was not.';
-    return NextResponse.json({
-      verdict: safeVerdict,
-      outcome: parseVerdictOutcome(safeVerdict),
-    });
+    const safeVerdict = verdict || 'case dismissed. The testimony was chaotic. The court needs a break.';
+    return NextResponse.json({ verdict: safeVerdict, outcome: parseVerdictOutcome(safeVerdict) });
   } catch {
-    const verdict = 'case dismissed. The prosecution was enthusiastic. The evidence was not.';
+    const verdict = 'case dismissed. The testimony was chaotic. The court needs a break.';
     return NextResponse.json({ verdict, outcome: parseVerdictOutcome(verdict) });
   }
 }

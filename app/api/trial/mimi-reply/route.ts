@@ -6,13 +6,13 @@ const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
-// This route is now used for Mia's cross-examination as prosecutor.
+// Mia reacts as prosecutor to Mimi's witness testimony.
 export async function POST(req: NextRequest) {
-  const { charge, evidence = [], history = [], userMessage } = await req.json() as {
+  const { charge, evidence = [], history = [], mimiAnswer } = await req.json() as {
     charge: string;
     evidence: TrialEvidenceItem[];
     history: TrialExchangeMessage[];
-    userMessage: string;
+    mimiAnswer: string;
   };
 
   const relevantEvidence = evidence.filter((item) => item.isRelevant);
@@ -23,17 +23,17 @@ Mimi (the defendant) is accused of: ${charge}
 Evidence you can cite by label:
 ${relevantEvidence.map((item) => `${item.label}: ${cleanTrialContent(item.content)}`).join('\n') || 'No strong evidence on file.'}
 
-Trial history so far:
+Examination history:
 ${history.map((item) => `${item.role}: ${cleanTrialContent(item.content)}`).join('\n')}
 
-Defense counsel's latest argument:
-${cleanTrialContent(userMessage)}
+Mimi just testified:
+${cleanTrialContent(mimiAnswer)}
 
 Rules:
-- You are Mia: sharp, slightly smug, composed — in full prosecutor mode
-- Punch holes in the defense argument
-- Naturally drop exhibit labels into your reply when relevant (e.g. "as Exhibit B clearly shows...")
-- Don't list all evidence — pick the most damning one if any
+- You are Mia: sharp, composed, slightly smug prosecutor
+- React to what Mimi just said — pounce on anything suspicious or contradictory
+- Cite an exhibit label naturally if it fits ("as Exhibit B shows...")
+- If Mimi said something actually helpful to her case, push back skeptically
 - 1-2 sentences max
 - No JSON, no markdown`;
 
@@ -51,8 +51,8 @@ Rules:
       .join(' ')
       .trim());
 
-    return NextResponse.json({ reply: reply || 'objection. the defense is grasping at straws and we all know it.' });
+    return NextResponse.json({ reply: reply || 'Interesting. So the defendant cannot provide a clear account of events.' });
   } catch {
-    return NextResponse.json({ reply: 'objection. the defense is grasping at straws and we all know it.' });
+    return NextResponse.json({ reply: 'Interesting. So the defendant cannot provide a clear account of events.' });
   }
 }

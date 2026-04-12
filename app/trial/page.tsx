@@ -18,9 +18,9 @@ type TrialMessage = {
   vocabCandidates?: VocabCandidate[];
 };
 
-type TrialPhase = 'loading' | 'defending' | 'verdict' | 'done';
+type TrialPhase = 'loading' | 'examining' | 'verdict' | 'done';
 
-const MAX_DEFENSE_TURNS = 3;
+const MAX_QUESTIONS = 6;
 
 const MIMI_OPENING_REACTIONS = [
   "wait WHAT. I literally didn't do anything. this is a setup.",
@@ -44,19 +44,19 @@ export default function TrialPage() {
   const [evidence, setEvidence] = useState<TrialEvidenceItem[]>([]);
   const [messages, setMessages] = useState<TrialMessage[]>([]);
   const [input, setInput] = useState('');
-  const [verdict, setVerdict] = useState('');
   const [verdictOutcome, setVerdictOutcome] = useState<'guilty' | 'not_guilty' | 'dismissed' | null>(null);
   const [expGained, setExpGained] = useState(0);
-  const [isMiaProsecuting, setIsMiaProsecuting] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
   const [username, setUsername] = useState<string | null>(null);
   const [ownerId, setOwnerId] = useState<string | null>(null);
-  // vocab modal state (one modal shared across all messages)
   const [selectingMessageId, setSelectingMessageId] = useState<string | null>(null);
-  const defenseMessagesRef = useRef<string[]>([]);
-  const miaRepliesRef = useRef<string[]>([]);
+
+  const userQuestionsRef = useRef<string[]>([]);
+  const mimiAnswersRef = useRef<string[]>([]);
+  const miaReactionsRef = useRef<string[]>([]);
   const hasAwardedExpRef = useRef(false);
 
-  const defenseCount = defenseMessagesRef.current.length;
+  const questionCount = userQuestionsRef.current.length;
 
   useEffect(() => {
     const prev = document.body.style.overflow;
@@ -75,9 +75,7 @@ export default function TrialPage() {
       try {
         const raw = sessionStorage.getItem(TRIAL_RECENT_MESSAGES_KEY);
         recentMessages = raw ? JSON.parse(raw) as TrialHistoryMessage[] : [];
-      } catch {
-        recentMessages = [];
-      }
+      } catch { recentMessages = []; }
 
       try {
         const response = await fetch('/api/trial/start', {
@@ -89,35 +87,33 @@ export default function TrialPage() {
         setCharge(data.charge);
         setEvidence(data.evidence ?? []);
 
-        const miaOpening = `court is now in session. (｀・ω・´)\nMimi, you stand accused of: ${data.charge}\nthe prosecution is ready.`;
+        const miaOpening = `court is now in session. (｀・ω・´)\nMimi stands accused of: ${data.charge}\nthe prosecution is ready.`;
         setMessages([{ role: 'mia', content: miaOpening, id: makeId('mia') }]);
+        await new Promise((r) => setTimeout(r, 1200));
 
-        await new Promise((resolve) => setTimeout(resolve, 1200));
         setMessages((prev) => [...prev, { role: 'mimi', content: pickMimiReaction(), id: makeId('mimi') }]);
+        await new Promise((r) => setTimeout(r, 1000));
 
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        const miaInvite = `${savedUsername ?? 'counselor'}, you have ${MAX_DEFENSE_TURNS} turns to defend your client. make them count.`;
+        const miaInvite = `${savedUsername ?? 'counselor'}, you may begin your examination. question the defendant — up to ${MAX_QUESTIONS} questions.`;
         setMessages((prev) => [...prev, { role: 'mia', content: miaInvite, id: makeId('mia') }]);
-        setPhase('defending');
+        setPhase('examining');
       } catch {
         setCharge('general suspicious behavior');
         setEvidence([]);
         setMessages([
           { role: 'mia', content: 'court is in session. Mimi stands accused of general suspicious behavior.', id: makeId('mia') },
           { role: 'mimi', content: "I didn't do anything. I want a better lawyer.", id: makeId('mimi') },
-          { role: 'mia', content: `${savedUsername ?? 'counselor'}, please present your defense.`, id: makeId('mia') },
+          { role: 'mia', content: `${savedUsername ?? 'counselor'}, you may begin questioning the defendant.`, id: makeId('mia') },
         ]);
-        setPhase('defending');
+        setPhase('examining');
       }
     };
-
     void run();
   }, []);
 
   useEffect(() => {
     if (phase !== 'done' || hasAwardedExpRef.current || !ownerId) return;
     if (verdictOutcome === 'guilty') return;
-
     hasAwardedExpRef.current = true;
     void (async () => {
       try {
@@ -126,29 +122,31 @@ export default function TrialPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ vocabOwnerId: ownerId, expGained: 20 }),
         });
-        setExpGained(20);
-      } catch {
-        setExpGained(20);
-      }
+      } catch { /* ignore */ }
+      setExpGained(20);
     })();
   }, [phase, ownerId, verdictOutcome]);
 
   const submitVerdict = async () => {
     setPhase('verdict');
-    setIsMiaProsecuting(false);
+    setIsProcessing(false);
     try {
       const response = await fetch('/api/trial/verdict', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ charge, evidence, userDefense: defenseMessagesRef.current, miaReplies: miaRepliesRef.current }),
+        body: JSON.stringify({
+          charge,
+          evidence,
+          userQuestions: userQuestionsRef.current,
+          mimiAnswers: mimiAnswersRef.current,
+          miaReactions: miaReactionsRef.current,
+        }),
       });
       const data = await response.json() as { verdict: string; outcome: 'guilty' | 'not_guilty' | 'dismissed' };
-      setVerdict(data.verdict);
       setVerdictOutcome(data.outcome);
       setMessages((prev) => [...prev, { role: 'judge', content: data.verdict, id: makeId('judge') }]);
     } catch {
-      const fallback = 'case dismissed. The prosecution made its case. The defense made their case. The court has seen enough.';
-      setVerdict(fallback);
+      const fallback = 'case dismissed. The testimony was chaotic. The court needs a break.';
       setVerdictOutcome('dismissed');
       setMessages((prev) => [...prev, { role: 'judge', content: fallback, id: makeId('judge') }]);
     } finally {
@@ -158,51 +156,71 @@ export default function TrialPage() {
 
   const handleSend = async () => {
     const trimmed = input.trim();
-    if (!trimmed || phase !== 'defending' || isMiaProsecuting) return;
+    if (!trimmed || phase !== 'examining' || isProcessing) return;
 
-    defenseMessagesRef.current = [...defenseMessagesRef.current, trimmed];
+    userQuestionsRef.current = [...userQuestionsRef.current, trimmed];
     setMessages((prev) => [...prev, { role: 'user', content: trimmed, id: makeId('user') }]);
     setInput('');
+    setIsProcessing(true);
 
-    if (defenseMessagesRef.current.length >= MAX_DEFENSE_TURNS) {
-      await submitVerdict();
-      return;
-    }
-
-    setIsMiaProsecuting(true);
     try {
-      const response = await fetch('/api/trial/mimi-reply', {
+      // Step 1: Mimi answers
+      const answerRes = await fetch('/api/trial/mimi-answer', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           charge,
           evidence,
-          history: messages
-            .filter((m) => m.role === 'user' || m.role === 'mia')
-            .map((m) => ({ role: m.role === 'user' ? 'user' as const : 'mia' as const, content: m.content })),
-          userMessage: trimmed,
+          history: [
+            ...userQuestionsRef.current.slice(0, -1).flatMap((q, i) => [
+              { role: 'user' as const, content: q },
+              ...(mimiAnswersRef.current[i] ? [{ role: 'mimi' as const, content: mimiAnswersRef.current[i] }] : []),
+            ]),
+          ],
+          userQuestion: trimmed,
         }),
       });
-      const data = await response.json() as { reply: string };
-      miaRepliesRef.current = [...miaRepliesRef.current, data.reply];
-      setMessages((prev) => [...prev, { role: 'mia', content: data.reply, id: makeId('mia') }]);
+      const { answer } = await answerRes.json() as { answer: string };
+      mimiAnswersRef.current = [...mimiAnswersRef.current, answer];
+      setMessages((prev) => [...prev, { role: 'mimi', content: answer, id: makeId('mimi') }]);
+
+      // Step 2: Mia reacts to Mimi's answer
+      const replyRes = await fetch('/api/trial/mimi-reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          charge,
+          evidence,
+          history: userQuestionsRef.current.flatMap((q, i) => [
+            { role: 'user' as const, content: q },
+            ...(mimiAnswersRef.current[i] ? [{ role: 'mimi' as const, content: mimiAnswersRef.current[i] }] : []),
+          ]),
+          mimiAnswer: answer,
+        }),
+      });
+      const { reply } = await replyRes.json() as { reply: string };
+      miaReactionsRef.current = [...miaReactionsRef.current, reply];
+      setMessages((prev) => [...prev, { role: 'mia', content: reply, id: makeId('mia') }]);
     } catch {
-      const fallback = 'objection. the defense is grasping at straws and we all know it.';
-      miaRepliesRef.current = [...miaRepliesRef.current, fallback];
-      setMessages((prev) => [...prev, { role: 'mia', content: fallback, id: makeId('mia') }]);
+      const fallbackAnswer = "I... was just standing there. I didn't do anything.";
+      mimiAnswersRef.current = [...mimiAnswersRef.current, fallbackAnswer];
+      setMessages((prev) => [...prev, { role: 'mimi', content: fallbackAnswer, id: makeId('mimi') }]);
     } finally {
-      setIsMiaProsecuting(false);
+      setIsProcessing(false);
+    }
+
+    // Auto-submit verdict after max questions
+    if (userQuestionsRef.current.length >= MAX_QUESTIONS) {
+      await submitVerdict();
     }
   };
 
   const toggleTranslation = async (messageId: string, content: string, character: 'mia' | 'mimi') => {
-    setMessages((prev) =>
-      prev.map((m) => {
-        if (m.id !== messageId) return m;
-        if (m.translation !== null && m.translation !== undefined) return { ...m, translation: null };
-        return { ...m, isTranslating: true };
-      }),
-    );
+    setMessages((prev) => prev.map((m) => {
+      if (m.id !== messageId) return m;
+      if (m.translation !== null && m.translation !== undefined) return { ...m, translation: null };
+      return { ...m, isTranslating: true };
+    }));
     try {
       const res = await fetch('/api/translate', {
         method: 'POST',
@@ -210,13 +228,9 @@ export default function TrialPage() {
         body: JSON.stringify({ text: content, character }),
       });
       const { result } = await res.json() as { result: string };
-      setMessages((prev) =>
-        prev.map((m) => (m.id === messageId ? { ...m, translation: result, isTranslating: false } : m)),
-      );
+      setMessages((prev) => prev.map((m) => m.id === messageId ? { ...m, translation: result, isTranslating: false } : m));
     } catch {
-      setMessages((prev) =>
-        prev.map((m) => (m.id === messageId ? { ...m, translation: '翻訳できませんでした', isTranslating: false } : m)),
-      );
+      setMessages((prev) => prev.map((m) => m.id === messageId ? { ...m, translation: '翻訳できませんでした', isTranslating: false } : m));
     }
   };
 
@@ -242,11 +256,12 @@ export default function TrialPage() {
   };
 
   const handleVocabSave = async (selected: VocabCandidate[]) => {
-    if (!selectingMessageId || !ownerId) return;
+    const targetId = selectingMessageId;
+    if (!targetId || !ownerId) return;
     setSelectingMessageId(null);
-    setMessages((prev) => prev.map((m) => m.id === selectingMessageId ? { ...m, saveState: 'saving' } : m));
+    setMessages((prev) => prev.map((m) => m.id === targetId ? { ...m, saveState: 'saving' } : m));
     if (selected.length === 0) {
-      setMessages((prev) => prev.map((m) => m.id === selectingMessageId ? { ...m, saveState: 'idle' } : m));
+      setMessages((prev) => prev.map((m) => m.id === targetId ? { ...m, saveState: 'idle' } : m));
       return;
     }
     try {
@@ -255,9 +270,9 @@ export default function TrialPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ items: selected, sessionId: ownerId }),
       });
-      setMessages((prev) => prev.map((m) => m.id === selectingMessageId ? { ...m, saveState: 'saved' } : m));
+      setMessages((prev) => prev.map((m) => m.id === targetId ? { ...m, saveState: 'saved' } : m));
     } catch {
-      setMessages((prev) => prev.map((m) => m.id === selectingMessageId ? { ...m, saveState: 'idle' } : m));
+      setMessages((prev) => prev.map((m) => m.id === targetId ? { ...m, saveState: 'idle' } : m));
     }
   };
 
@@ -281,7 +296,7 @@ export default function TrialPage() {
         <div className="mb-4 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold">Mock Trial</h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Mia is prosecuting. You are defending Mimi.</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Question Mimi. Mia prosecutes. The Judge decides.</p>
           </div>
           <Link href="/" className="rounded-full border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 px-4 py-2 text-sm text-gray-600 dark:text-gray-300 shadow-sm transition hover:border-purple-200 dark:hover:border-purple-700 hover:text-purple-600 dark:hover:text-purple-400">
             Back
@@ -342,7 +357,7 @@ export default function TrialPage() {
                       <div className="flex items-center justify-end gap-3 pr-1">
                         <button
                           onClick={() => void toggleTranslation(message.id, message.content, isMia ? 'mia' : 'mimi')}
-                          className={`text-xs font-bold transition-colors ${message.translation !== null && message.translation !== undefined ? 'text-yellow-500 hover:text-yellow-600' : 'text-gray-400 hover:text-yellow-500'}`}
+                          className={`text-xs font-bold transition-colors ${message.translation != null ? 'text-yellow-500 hover:text-yellow-600' : 'text-gray-400 hover:text-yellow-500'}`}
                           title="日本語訳"
                         >
                           {message.isTranslating ? '...' : '訳'}
@@ -350,7 +365,7 @@ export default function TrialPage() {
                         <button
                           onClick={() => { if (!message.saveState || message.saveState === 'idle') void handleVocabExtract(message.id, message.content); }}
                           disabled={message.saveState === 'extracting' || message.saveState === 'saving'}
-                          className={`text-xs font-bold transition-colors ${
+                          className={`transition-colors ${
                             message.saveState === 'saved' ? 'text-emerald-500' :
                             message.saveState === 'extracting' || message.saveState === 'saving' ? 'text-gray-300 cursor-not-allowed' :
                             'text-gray-400 hover:text-indigo-500'
@@ -360,7 +375,7 @@ export default function TrialPage() {
                           {message.saveState === 'extracting' || message.saveState === 'saving' ? (
                             <svg className="w-3.5 h-3.5 animate-pulse" fill="currentColor" viewBox="0 0 24 24"><path d="M5 3h14a1 1 0 0 1 1 1v17l-8-4-8 4V4a1 1 0 0 1 1-1z"/></svg>
                           ) : message.saveState === 'saved' ? (
-                            <svg className="w-3.5 h-3.5 text-emerald-500" fill="currentColor" viewBox="0 0 24 24"><path d="M5 3h14a1 1 0 0 1 1 1v17l-8-4-8 4V4a1 1 0 0 1 1-1z"/></svg>
+                            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M5 3h14a1 1 0 0 1 1 1v17l-8-4-8 4V4a1 1 0 0 1 1-1z"/></svg>
                           ) : (
                             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 3h14a1 1 0 0 1 1 1v17l-8-4-8 4V4a1 1 0 0 1 1-1z"/></svg>
                           )}
@@ -372,27 +387,27 @@ export default function TrialPage() {
               );
             })}
 
-            {isMiaProsecuting && (
+            {isProcessing && (
               <div className="flex items-end gap-3">
                 <div className="overflow-hidden rounded-full shadow-md">
-                  <CatAvatar variant="mia" size={40} />
+                  <CatAvatar variant="mimi" size={40} />
                 </div>
-                <div className="rounded-2xl rounded-bl-sm border border-purple-200 dark:border-purple-800 bg-purple-100 dark:bg-purple-950/60 px-4 py-3 shadow-sm">
+                <div className="rounded-2xl rounded-bl-sm border border-orange-200 dark:border-orange-800 bg-orange-100 dark:bg-orange-950/60 px-4 py-3 shadow-sm">
                   <div className="flex gap-1">
-                    <span className="h-2 w-2 rounded-full bg-purple-400 animate-bounce [animation-delay:0ms]" />
-                    <span className="h-2 w-2 rounded-full bg-purple-400 animate-bounce [animation-delay:150ms]" />
-                    <span className="h-2 w-2 rounded-full bg-purple-400 animate-bounce [animation-delay:300ms]" />
+                    <span className="h-2 w-2 rounded-full bg-orange-400 animate-bounce [animation-delay:0ms]" />
+                    <span className="h-2 w-2 rounded-full bg-orange-400 animate-bounce [animation-delay:150ms]" />
+                    <span className="h-2 w-2 rounded-full bg-orange-400 animate-bounce [animation-delay:300ms]" />
                   </div>
                 </div>
               </div>
             )}
           </div>
 
-          {phase === 'defending' && (
+          {phase === 'examining' && (
             <div className="mt-5 border-t border-gray-100 dark:border-gray-700 pt-4">
               <div className="mb-2 flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
-                <span>Your defense argument</span>
-                <span>{defenseCount}/{MAX_DEFENSE_TURNS}</span>
+                <span>Question Mimi</span>
+                <span>{questionCount}/{MAX_QUESTIONS}</span>
               </div>
               <div className="flex gap-2">
                 <textarea
@@ -407,22 +422,33 @@ export default function TrialPage() {
                   rows={3}
                   style={{ fontSize: '16px' }}
                   className="min-h-[84px] flex-1 rounded-2xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-4 py-3 outline-none transition focus:border-indigo-300 dark:focus:border-indigo-600 focus:bg-white dark:focus:bg-gray-600 dark:text-gray-100 dark:placeholder-gray-400"
-                  placeholder="Defend Mimi in English..."
+                  placeholder="Ask Mimi a question..."
                 />
-                <button
-                  onClick={() => void handleSend()}
-                  disabled={!input.trim() || isMiaProsecuting}
-                  className="self-end rounded-2xl bg-indigo-600 px-4 py-3 text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
-                </button>
+                <div className="flex flex-col gap-2 self-end">
+                  <button
+                    onClick={() => void handleSend()}
+                    disabled={!input.trim() || isProcessing}
+                    className="rounded-2xl bg-indigo-600 px-4 py-3 text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
+                    title="質問する"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+                  </button>
+                  <button
+                    onClick={() => void submitVerdict()}
+                    disabled={questionCount === 0 || isProcessing}
+                    className="rounded-2xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 transition hover:bg-slate-50 dark:hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-40"
+                    title="尋問を終了して判決へ"
+                  >
+                    結審
+                  </button>
+                </div>
               </div>
             </div>
           )}
 
           {phase === 'verdict' && (
             <div className="mt-5 border-t border-gray-100 dark:border-gray-700 pt-4 flex items-center gap-2 text-sm text-gray-400 dark:text-gray-500">
-              <span className="animate-spin">⚖️</span>
+              <span className="animate-spin inline-block">⚖️</span>
               <span>The Judge is deliberating...</span>
             </div>
           )}
