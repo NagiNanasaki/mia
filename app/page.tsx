@@ -15,6 +15,7 @@ import {
   splitMessageContentForMobileNatural as splitMessageContentForMobileNaturalFromLib,
 } from '@/lib/mobile-reply-splitting';
 import { extractFirstUrl } from '@/lib/url-reaction';
+import { TRIAL_RECENT_MESSAGES_KEY, normalizeTrialRecentMessages } from '@/lib/trial';
 
 // --- 感情状態---
 type MoodMia = 'neutral' | 'excited' | 'annoyed' | 'amused' | 'bored'
@@ -100,6 +101,12 @@ const DEFAULT_SUGGESTIONS = [
 const IDLE_TRIGGER_DELAY_MS = 60_000;
 const IDLE_NEXT_DELAY_MS = 90_000;
 const IDLE_MAX_CONSECUTIVE = 5;
+const TRIVIA_DATE_KEY = 'mia_last_trivia_date';
+const TRIVIA_GENRES = ['animals', 'space', 'food', 'history'] as const;
+
+function pickTriviaGenre() {
+  return TRIVIA_GENRES[Math.floor(Math.random() * TRIVIA_GENRES.length)];
+}
 
 const MIA_GREETINGS = [
   "oh, you're here~ I'm Mia — genius AI, 13, Manchester (｀・ω・´) I've already formed a few opinions about you and we haven't even spoken yet. so, what's your English like? I'll figure it out either way, I think~",
@@ -897,6 +904,7 @@ export default function HomePage() {
   const [isThinking, setIsThinking] = useState(false);
   const [pendingCharacter, setPendingCharacter] = useState<'mia' | 'mimi' | null>(null);
   const [isIdleChatActive, setIsIdleChatActive] = useState(false);
+  const [triviaText, setTriviaText] = useState<string | null>(null);
   const sessionIdRef = useRef<string>('');
   const vocabOwnerIdRef = useRef<string>('');
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -995,6 +1003,21 @@ export default function HomePage() {
   // Keep messagesRef in sync for use inside debounce callbacks
   useEffect(() => {
     messagesRef.current = messages;
+  }, [messages]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const recentMessages = normalizeTrialRecentMessages(
+      messages
+        .filter(isConversationMessage)
+        .map((message) => ({
+          role: message.role,
+          content: message.content,
+        }))
+    );
+
+    sessionStorage.setItem(TRIAL_RECENT_MESSAGES_KEY, JSON.stringify(recentMessages));
   }, [messages]);
 
   const saveMessage = async (msg: { role: string; content: string; character?: string }) => {
@@ -1341,9 +1364,9 @@ export default function HomePage() {
       });
       const { profile, error } = await res.json();
       if (profile) setUserProfile(profile);
-      else alert(error ?? '繝励Ο繝輔ぃ繧､繝ｫ逕滓・縺ｫ螟ｱ謨励＠縺ｾ縺励◆');
+      else alert(error ?? 'Profile generation failed.');
     } catch {
-      alert('繝励Ο繝輔ぃ繧､繝ｫ逕滓・縺ｫ螟ｱ謨励＠縺ｾ縺励◆');
+      alert('Profile generation failed.');
     } finally {
       setGeneratingProfile(false);
     }
@@ -1686,10 +1709,50 @@ export default function HomePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isStreaming, isThinking, isLoading]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    void (async () => {
+      const today = new Date().toLocaleDateString('sv-SE');
+      if (localStorage.getItem(TRIVIA_DATE_KEY) === today) return;
+
+      try {
+        const genre = pickTriviaGenre();
+        const response = await fetch(`/api/daily-trivia?genre=${genre}`);
+        const data = await response.json() as { trivia?: string };
+        if (data.trivia) {
+          setTriviaText(data.trivia);
+          localStorage.setItem(TRIVIA_DATE_KEY, today);
+        }
+      } catch {
+        // Ignore trivia failures and leave the main chat untouched.
+      }
+    })();
+  }, []);
+
   return (
     <div className="flex flex-col h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-indigo-50 dark:from-gray-900 dark:via-gray-900 dark:to-gray-800">
       {/* Username modal */}
       {showUsernameModal && <UsernameModal onSave={saveUsername} />}
+
+      {triviaText && (
+        <div className="pointer-events-none fixed inset-x-0 bottom-24 z-40 flex justify-center px-4">
+          <button
+            type="button"
+            onClick={() => setTriviaText(null)}
+            className="pointer-events-auto flex w-full max-w-sm items-start gap-3 rounded-3xl border border-orange-200 bg-white/95 p-4 text-left shadow-xl backdrop-blur transition hover:-translate-y-0.5"
+          >
+            <div className="overflow-hidden rounded-full shadow-sm">
+              <CatAvatar variant="mimi" size={40} />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-semibold uppercase tracking-wide text-orange-500">Mimi daily trivia</p>
+              <p className="mt-1 text-sm leading-snug text-gray-800 dark:text-gray-100">{triviaText}</p>
+              <p className="mt-2 text-[11px] text-gray-400">Tap to close</p>
+            </div>
+          </button>
+        </div>
+      )}
 
       {/* Header */}
       <header className="flex items-center gap-3 px-4 py-3 bg-white/80 dark:bg-gray-800/90 backdrop-blur-sm border-b border-purple-100 dark:border-gray-700 shadow-sm" style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}>
@@ -1739,7 +1802,7 @@ export default function HomePage() {
             )}
             {/* Refresh menu (desktop) */}
             <div className="relative" ref={refreshMenuRef}>
-              <button onClick={() => setShowRefreshMenu(v => !v)} className="text-gray-400 hover:text-indigo-500 dark:hover:text-indigo-300 transition-colors p-1.5" title="譖ｴ譁ｰ繝｡繝九Η繝ｼ">
+              <button onClick={() => setShowRefreshMenu(v => !v)} className="text-gray-400 hover:text-indigo-500 dark:hover:text-indigo-300 transition-colors p-1.5" title="Refresh options">
                 <svg className={`w-4 h-4 ${loadingTrending ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                   <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
                 </svg>
@@ -1748,17 +1811,17 @@ export default function HomePage() {
                 <div className="absolute right-0 top-full mt-1 w-40 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg overflow-hidden z-50">
                   <button onClick={() => { fetchTrending(); setShowRefreshMenu(false); }} disabled={loadingTrending} className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-indigo-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-40">
                     <svg className="w-3.5 h-3.5 text-indigo-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-                    諠・ｱ譖ｴ譁ｰ
+                    Refresh trends
                   </button>
                   <div className="border-t border-gray-100 dark:border-gray-700" />
                   <button onClick={refreshConversation} className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-pink-50 dark:hover:bg-gray-700 transition-colors">
                     <svg className="w-3.5 h-3.5 text-pink-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
-                    繝ｪ繝輔Ξ繝・す繝･
+                    New chat
                   </button>
                 </div>
               )}
             </div>
-            <button onClick={() => setShowSync(true)} className="text-gray-400 hover:text-indigo-500 dark:hover:text-indigo-300 transition-colors p-1.5" title="繝・ヰ繧､繧ｹ蜷梧悄">
+            <button onClick={() => setShowSync(true)} className="text-gray-400 hover:text-indigo-500 dark:hover:text-indigo-300 transition-colors p-1.5" title="Sync data">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1-4l-3 3m0 0l-3-3m3 3V4"/></svg>
             </button>
             <button onClick={generateProfile} disabled={generatingProfile} className={`transition-colors p-1.5 ${userProfile ? 'text-green-400 hover:text-green-600' : 'text-gray-400 hover:text-blue-500'} disabled:opacity-40`} title={userProfile ? 'Refresh profile' : 'Generate profile'}>
@@ -1767,7 +1830,7 @@ export default function HomePage() {
                 : <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
               }
             </button>
-            <Link href="/translate" className="text-gray-400 hover:text-purple-500 dark:hover:text-purple-300 transition-colors p-1.5" title="鄙ｻ險ｳ">
+            <Link href="/translate" className="text-gray-400 hover:text-purple-500 dark:hover:text-purple-300 transition-colors p-1.5" title="Translate">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                 <path d="M2 5h12"/>
                 <path d="M7 2v3"/>
@@ -1798,21 +1861,35 @@ export default function HomePage() {
                 )}
                 <button onClick={() => { fetchTrending(); setShowMenu(false); }} disabled={loadingTrending} className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-indigo-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-40">
                   <svg className={`w-3.5 h-3.5 text-indigo-400 ${loadingTrending ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-                  諠・ｱ譖ｴ譁ｰ
+                  Refresh trends
                 </button>
                 <button onClick={() => { refreshConversation(); setShowMenu(false); }} className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-pink-50 dark:hover:bg-gray-700 transition-colors">
                   <svg className="w-3.5 h-3.5 text-pink-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
-                  繝ｪ繝輔Ξ繝・す繝･
+                  New chat
                 </button>
                 <div className="border-t border-gray-100 dark:border-gray-700" />
                 <button onClick={() => { setShowSync(true); setShowMenu(false); }} className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-indigo-50 dark:hover:bg-gray-700 transition-colors">
                   <svg className="w-3.5 h-3.5 text-indigo-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1-4l-3 3m0 0l-3-3m3 3V4"/></svg>
-                  繝・ヰ繧､繧ｹ蜷梧悄
+                  Sync data
                 </button>
                 <button onClick={() => { generateProfile(); setShowMenu(false); }} disabled={generatingProfile} className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-blue-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-40">
                   <svg className={`w-3.5 h-3.5 ${userProfile ? 'text-green-400' : 'text-blue-400'}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
                   {userProfile ? 'Refresh profile' : 'Generate profile'}
                 </button>
+                <Link
+                  href="/trial"
+                  onClick={() => setShowMenu(false)}
+                  className="flex items-center gap-2 px-4 py-2.5 text-sm text-gray-700 transition-colors hover:bg-orange-50 dark:text-gray-200 dark:hover:bg-gray-700"
+                >
+                  <svg className="h-3.5 w-3.5 text-orange-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path d="M9 7h6" />
+                    <path d="M7 7h.01" />
+                    <path d="M7 11h10" />
+                    <path d="M7 15h6" />
+                    <path d="M5 4h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2z" />
+                  </svg>
+                  Mock trial
+                </Link>
               </div>
             )}
           </div>
@@ -1926,7 +2003,7 @@ export default function HomePage() {
                   <button
                     onClick={() => fetchSuggestions(messages)}
                     className="flex-shrink-0 text-gray-400 hover:text-purple-400 dark:hover:text-purple-300 transition-colors p-1.5"
-                    title="繧ｵ繧ｸ繧ｧ繧ｹ繝医ｒ譖ｴ譁ｰ"
+                    title="Refresh suggestions"
                   >
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                       <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
@@ -1945,7 +2022,7 @@ export default function HomePage() {
                   <Link
                     href="/game"
                     className="flex-shrink-0 text-gray-400 hover:text-purple-500 dark:hover:text-purple-300 transition-colors p-1.5"
-                    title="闍ｱ隱槭け繧､繧ｺ"
+                    title="Quiz game"
                   >
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                       <path d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/>
@@ -1955,7 +2032,7 @@ export default function HomePage() {
                   <Link
                     href="/translate"
                     className="flex-shrink-0 text-gray-400 hover:text-purple-500 dark:hover:text-purple-300 transition-colors p-1.5"
-                    title="鄙ｻ險ｳ"
+                    title="Translate"
                   >
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                       <path d="M2 5h12"/>
@@ -1963,6 +2040,19 @@ export default function HomePage() {
                       <path d="M4 14c0-2 2-5 4-5s4 3 4 5"/>
                       <path d="M14 18l4-8 4 8"/>
                       <path d="M15.5 15.5h5"/>
+                    </svg>
+                  </Link>
+                  <Link
+                    href="/trial"
+                    className={`flex-shrink-0 text-gray-400 transition-colors p-1.5 hover:text-orange-500 dark:hover:text-orange-300 ${isStreaming ? 'pointer-events-none opacity-40' : ''}`}
+                    title="Mock trial"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <path d="M9 7h6" />
+                      <path d="M7 7h.01" />
+                      <path d="M7 11h10" />
+                      <path d="M7 15h6" />
+                      <path d="M5 4h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2z" />
                     </svg>
                   </Link>
                 </>
@@ -1975,7 +2065,7 @@ export default function HomePage() {
             <kbd className="bg-gray-100 px-1.5 py-0.5 rounded text-gray-500 font-mono text-xs">
               Enter
             </kbd>{' '}
-            to send ﾂｷ{' '}
+            to send {'·'}{' '}
             <kbd className="bg-gray-100 px-1.5 py-0.5 rounded text-gray-500 font-mono text-xs">
               Shift+Enter
             </kbd>{' '}
