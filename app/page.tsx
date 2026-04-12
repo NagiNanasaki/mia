@@ -993,15 +993,18 @@ export default function HomePage() {
     init();
   }, []);
 
+  // 初回ロード完了時（isLoading: true→false）に最下部へ即時スクロール
   useEffect(() => {
+    if (!isLoading) {
+      bottomRef.current?.scrollIntoView({ behavior: 'instant' });
+    }
+  }, [isLoading]);
+
+  // 会話中の新着メッセージ：既に下にいるときだけスムーズスクロール
+  useEffect(() => {
+    if (isLoading) return;
     const container = scrollContainerRef.current;
     if (!container) return;
-    // 初回ロード時は無条件で最下部へ（距離チェックなし）
-    if (!isInitialScrollDoneRef.current) {
-      isInitialScrollDoneRef.current = true;
-      bottomRef.current?.scrollIntoView({ behavior: 'instant' });
-      return;
-    }
     const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
     if (distanceFromBottom < 120) {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
