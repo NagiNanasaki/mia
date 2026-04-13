@@ -38,7 +38,7 @@ function detectMoodChange(text: string, char: 'mia' | 'mimi'): { mood: string; d
       return { mood: 'excited', delta: 0.3, trigger: 'reacted strongly' }
     if (/physically pained|screaming|SCREAMING|in pain/.test(text))
       return { mood: 'annoyed', delta: 0.2, trigger: 'something pained her' }
-    if (/\bboring\b|\bbored\b|anyway窶培not invested/.test(text))
+    if (/\bboring\b|\bbored\b|anyway.?not invested/.test(text))
       return { mood: 'bored', delta: 0.15, trigger: 'lost interest' }
     if (/lol|I'll allow|okay fine|bless/.test(text))
       return { mood: 'amused', delta: 0.15, trigger: 'found something funny' }
@@ -268,11 +268,6 @@ function findHardSplitIndex(segment: string, maxUnits: number): number {
 
 function getSplitBoundaryType(char: string): SplitBoundaryType | null {
   if (char === '\n') return 'newline';
-  /*
-  if (/[.!?邵ｲ繧托ｽｼ繝ｻ・ｼ豁・.test(char)) return 'sentence';
-  if (/[;:邵ｲ繝ｻ・ｼ迴ｪ/.test(char)) return 'strong';
-  if (/[,邵ｲ繝ｻ・ｼ繝ｻ]/.test(char)) return 'comma';
-  */
   if (/[.!?\u3002\uff01\uff1f]/.test(char)) return 'sentence';
   if (/[;:\uff1b\uff1a]/.test(char)) return 'strong';
   if (/[,\u3001\uff0c]/.test(char)) return 'comma';
@@ -910,7 +905,6 @@ export default function HomePage() {
   const vocabOwnerIdRef = useRef<string>('');
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const isInitialScrollDoneRef = useRef(false);
   const refreshMenuRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const messagesRef = useRef<Message[]>([]);
@@ -1009,7 +1003,7 @@ export default function HomePage() {
     if (distanceFromBottom < 120) {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [messages]);
+  }, [messages, isLoading]);
 
   // Keep messagesRef in sync for use inside debounce callbacks
   useEffect(() => {
@@ -2147,4 +2141,3 @@ export default function HomePage() {
     </div>
   );
 }
-

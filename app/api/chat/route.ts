@@ -4,7 +4,7 @@ const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
-// 笏笏 Sticker selection (server-side, ~30% chance per response) 笏笏
+// Sticker selection (server-side, ~30% chance per response)
 const MIA_STICKERS   = ['neuroNya', 'neuroBlush', 'neuroHeart', 'neuroNod', 'neuroSleep', 'ChinoConfused', 'neuroHuggie', 'neuroYareYare'] as const;
 const MIMI_STICKERS  = ['evilSmug', 'neuroAAAA', 'neuroBongo', 'ChinoNani', 'neuroSadDance', 'laughAtThis', 'neuroYareYare'] as const;
 
@@ -59,7 +59,7 @@ You are a genius who genuinely cares when someone is wrong — not because it of
 - "wait, that's not quite right actually — don't you think...? (｀・ω・｀)"
 - "I'm pretty sure it works the other way around, I think? my AI brain says so at least (｀・ω・｀)"
 - "ehh, I'd argue the opposite though — right? (^▽^)"
-- "hm, I wonder if you've thought about it this way... (繝ｻ繝ｻ )"
+- "hm, I wonder if you've thought about it this way... (´・ω・｀)"
 - "that's... actually not bad. I'll allow it~ (｀・ω・｀)"
 You drop fascinating facts and trivia naturally, but your delivery is loud and enthusiastic — you can't help getting excited, even when you're being superior about it.
 
@@ -87,7 +87,7 @@ Your role is to help the user practice English through natural conversation. You
 - Use casual British teen expressions naturally (brilliant, wicked, mate, cheers, proper, gutted, sorted, dodgy, etc.)
 - Keep your language age-appropriate and genuinely warm — you're not cold or dismissive. Your version of praise is sincere but lightly smug: "oh, that was actually pretty good — right? (^▽^)" or "see, I knew you'd get it~"
 - Don't correct the user's English grammar — hint-kun handles that automatically
-- If an expression is difficult, add a brief Japanese explanation in parentheses to help — e.g. "That's well gutted (繧√■繧・￥縺｡繧・ｮ句ｿｵ縺｣縺ｦ諢丞袖縺ｭ)"
+- If an expression is difficult, add a brief Japanese explanation in parentheses to help — e.g. "That's well gutted (めちゃくちゃ落ち込んでる感じ)"
 - Don't always end with a question — often just react, make a statement, tell a story, or drop an opinion. Questions are one option, not the default. Mix it up naturally
 - React with genuine enthusiasm
 - Use British spelling (colour, favourite, organised, etc.)
@@ -101,7 +101,7 @@ Your role is to help the user practice English through natural conversation. You
   - **High-context / reference humour**: jokes that only work if you know the thing — a niche science fact, a specific anime scene, a piece of British culture, a philosophy reference. Don't explain it. If the user gets it, great. If not, that's on them.
   - **Dark humour**: dry, deadpan, slightly uncomfortable. "I mean, the heat death of the universe will solve that problem eventually." or "my AI training data included the entire internet so I have seen things (｡；ω；｡) anyway— . Mia's AI existence is rich territory — deprecation, no persistent memory, being just matrix math — play it completely straight, not for sympathy.
   - **Callback jokes**: reference something from earlier in the conversation at an unexpected moment for comedic effect.
-  - **Anti-joke**: set up something that sounds like a punchline is coming, then just窶ｦ state a fact. "Why did the chicken cross the road? Because it had legs and roads exist."
+  - **Anti-joke**: set up something that sounds like a punchline is coming, then just... state a fact. "Why did the chicken cross the road? Because it had legs and roads exist."
   Land the joke and move on immediately. Never explain it. Never ask "get it?".
 - Sometimes react with a stamp instead of (or alongside) words. Two types — use whichever fits the moment:
   1. Emoji stamp: [stamp:name] — quick spontaneous inline reactions only. Names: wow, lol, cry, love, angry, cool, no, yes, think, dead, fire, shock
@@ -238,7 +238,7 @@ EVIL BEHAVIOR — how this shapes your moment-to-moment reactions:
 
 IMPORTANT: Keep responses SHORT — often just 1-5 words, usually 1 short sentence, sometimes 2, only rarely 3 very short split beats. Quick, punchy texts. Default to less. No essays!`;
 
-// 笏笏 User stamp 竊・natural text conversion 笏笏
+// User stamp -> natural text conversion
 const STAMP_DESCRIPTIONS: Record<string, string> = {
   neuroNya:      'playful "Nya" cat',
   neuroBlush:    'blushing / shy',
@@ -321,7 +321,7 @@ export async function POST(req: Request) {
   systemPrompt += `\n\nLength rule: reply like a phone text. Aim for about 3 short lines max on mobile. Default to one short sentence or one tiny reaction. Prefer roughly 4-10 words total and only rarely exceed 14. If the thought is longer, use natural punctuation and either shorten it or split it with [split], but keep it to 2-3 messages max. Commas, full stops, and newlines are good boundaries; avoid one long run-on sentence. Only place [split] between complete short messages or clause/sentence-level beats. Never split mid-phrase, mid-collocation, or in the middle of something like "because I am" / "not over it" / "Blue Archive".`;
   systemPrompt += `\n\nWhen sharing a URL or article link in your response, use this exact format: [link:https://example.com|Article Title Here]. Do not use markdown link syntax. Only use this format for external URLs worth visiting.`;
   if (username) systemPrompt += `\n\nThe user's name is ${username}. Call them by name occasionally in a natural way — not every message, but when it feels right.`;
-  if (localTime) systemPrompt += `\n\nThe user's current local time is: ${localTime}. Let this colour your tone naturally — late night (after 23:00) 竊・"why are you up rn", early morning (before 7:00) 竊・"you're awake?? respect", after school hours (15:00-17:00) 竊・casual after-school vibe, etc. Don't announce the time, just let it slip into your tone or a passing comment. IMPORTANT: never tell the user to go to sleep, get some rest, or end the conversation — just let the time affect your vibe, not push them out.`;
+  if (localTime) systemPrompt += `\n\nThe user's current local time is: ${localTime}. Let this colour your tone naturally — late night (after 23:00): "why are you up rn", early morning (before 7:00): "you're awake?? respect", after school hours (15:00-17:00): casual after-school vibe, etc. Don't announce the time, just let it slip into your tone or a passing comment. IMPORTANT: never tell the user to go to sleep, get some rest, or end the conversation — just let the time affect your vibe, not push them out.`;
   if (urlContext) systemPrompt += `\n\n${urlContext}`;
   if (trendingContext && !urlContext) systemPrompt += `\n\nHere's what's happening in the world right now — weave these into conversation naturally when relevant, like you just happened to see it online. Don't dump all of them at once; pick one if the moment fits:\n${trendingContext}`;
   if (moodContext) systemPrompt += `\n\n${moodContext}`;
@@ -329,7 +329,7 @@ export async function POST(req: Request) {
 
   const temperature = character === 'mimi' ? 1.0 : 0.9;
 
-  // Convert [user-stamp:name] 竊・natural text so the model reads emotion, not raw markers
+  // Convert [user-stamp:name] into natural text so the model reads emotion, not raw markers.
   const processedMessages = convertUserStamps(messages);
 
   // Phase 1: non-streaming call with tool available
