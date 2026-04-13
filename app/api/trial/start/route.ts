@@ -23,16 +23,32 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ charge: fallbackCharge });
   }
 
+  const CHARGE_ANGLES = [
+    'a social media crime (posting, ghosting, reacting wrong)',
+    'a language crime (grammar, punctuation, word misuse)',
+    'a timing crime (late replies, bad timing, going offline)',
+    'an emotional crime (laughing at wrong time, fake agreement, sighing)',
+    'a conversation crime (topic hijack, ignoring, changing subject)',
+    'a logic crime (contradicting herself, bad excuses, faulty reasoning)',
+    'a friendship crime (betrayal, favouritism, taking credit)',
+    'a general etiquette violation (rudeness, bad manners, ignoring norms)',
+  ];
+  const angle = CHARGE_ANGLES[Math.floor(Math.random() * CHARGE_ANGLES.length)];
+
   const prompt = `You are setting up a ridiculous "mock trial" in a teen chat app.
 Mimi (14, chaotic, always denying everything) is the DEFENDANT.
 Mia (13, sharp, slightly smug) is the PROSECUTOR.
 
 Generate ONE funny charge — what Mimi is accused of doing.
 
+Charge angle to use this session: ${angle}
+
 Rules:
 - Tone: playful, petty, dramatic
 - The charge must be something Mimi would absolutely deny doing
+- Tie it to the angle above; be specific and creative — avoid generic charges
 - Base it loosely on the conversation when possible
+- Keep it under 15 words, written as a short accusation phrase (no "Mimi is charged with...")
 - Output valid JSON only: { "charge": "string" }
 
 Recent messages:

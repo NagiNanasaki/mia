@@ -16,17 +16,13 @@ function buildToneGuide(character?: 'mia' | 'mimi' | 'hint' | null): string {
 }
 
 export async function POST(req: Request) {
-  const { text, character } = await req.json();
+  const { text, character, simple } = await req.json() as { text: string; character?: string; simple?: boolean };
 
-  const message = await client.messages.create({
-    model: 'claude-haiku-4-5',
-    max_tokens: 512,
-    messages: [
-      {
-        role: 'user',
-        content: `以下の英文を日本語に訳し、学習者向けに難しい単語・表現・スラングがあれば簡潔に解説してください。
+  const promptContent = simple
+    ? `以下の英文を自然な日本語に訳してください。訳文のみ出力し、解説・前置き・補足は一切不要です。\n\n英文:\n${text}`
+    : `以下の英文を日本語に訳し、学習者向けに難しい単語・表現・スラングがあれば簡潔に解説してください。
 
-${buildToneGuide(character)}
+${buildToneGuide(character as 'mia' | 'mimi' | 'hint' | null)}
 
 ルール:
 - 最初に自然な日本語訳を書く。
@@ -37,9 +33,12 @@ ${buildToneGuide(character)}
 - 余計な前置きは不要。
 
 英文:
-${text}`,
-      },
-    ],
+${text}`;
+
+  const message = await client.messages.create({
+    model: 'claude-haiku-4-5',
+    max_tokens: simple ? 120 : 512,
+    messages: [{ role: 'user', content: promptContent }],
   });
 
   const content = message.content[0];

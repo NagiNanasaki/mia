@@ -50,6 +50,8 @@ export default function TrialPage() {
   const [ownerId, setOwnerId] = useState<string | null>(null);
   const [selectingMessageId, setSelectingMessageId] = useState<string | null>(null);
   const [darkMode, setDarkMode] = useState(false);
+  const [chargeTranslation, setChargeTranslation] = useState<string | null>(null);
+  const [isChargeTranslating, setIsChargeTranslating] = useState(false);
 
   const userQuestionsRef = useRef<string[]>([]);
   const mimiAnswersRef = useRef<string[]>([]);
@@ -329,8 +331,36 @@ export default function TrialPage() {
 
         {/* Charge */}
         <div className="mb-2 rounded-xl border border-indigo-200 dark:border-indigo-900 bg-white/90 dark:bg-gray-800/90 px-3 py-2 shadow-sm flex-shrink-0">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-500 dark:text-indigo-400">Charge against Mimi</p>
-          <p className="text-sm font-medium leading-snug mt-0.5">{charge || 'Preparing the indictment...'}</p>
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-500 dark:text-indigo-400">Charge against Mimi</p>
+              <p className="text-sm font-medium leading-snug mt-0.5">{charge || 'Preparing the indictment...'}</p>
+              {chargeTranslation && (
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 leading-snug">{chargeTranslation}</p>
+              )}
+            </div>
+            {charge && (
+              <button
+                onClick={() => {
+                  if (chargeTranslation) { setChargeTranslation(null); return; }
+                  setIsChargeTranslating(true);
+                  void fetch('/api/translate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: charge, simple: true }),
+                  }).then((r) => r.json() as Promise<{ result: string }>).then(({ result }) => {
+                    setChargeTranslation(result);
+                  }).catch(() => {
+                    setChargeTranslation('翻訳できませんでした');
+                  }).finally(() => setIsChargeTranslating(false));
+                }}
+                className={`flex-shrink-0 text-xs font-bold mt-0.5 transition-colors ${chargeTranslation ? 'text-yellow-500 hover:text-yellow-600' : 'text-gray-400 hover:text-yellow-500'}`}
+                title="日本語訳"
+              >
+                {isChargeTranslating ? '...' : '訳'}
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Chat card — fills all remaining vertical space */}

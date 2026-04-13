@@ -1785,7 +1785,7 @@ export default function HomePage() {
                       const res = await fetch('/api/translate', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ text: triviaText, character: 'mimi' }),
+                        body: JSON.stringify({ text: triviaText, simple: true }),
                       });
                       const { result } = await res.json() as { result: string };
                       setTriviaTranslation(result);
