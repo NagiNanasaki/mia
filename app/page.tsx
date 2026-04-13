@@ -99,8 +99,8 @@ const DEFAULT_SUGGESTIONS = [
   "What's a weird fact you know?",
 ];
 
-const IDLE_TRIGGER_DELAY_MS = 60_000;
-const IDLE_NEXT_DELAY_MS = 90_000;
+const IDLE_TRIGGER_DELAY_MS = 120_000;
+const IDLE_NEXT_DELAY_MS = 180_000;
 const IDLE_MAX_CONSECUTIVE = 5;
 const TRIVIA_GENRES = [
   'animals', 'space', 'food', 'history',
