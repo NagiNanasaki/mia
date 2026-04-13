@@ -1736,14 +1736,7 @@ export default function HomePage() {
         if (data.trivia) {
           setTriviaText(data.trivia);
           // 少し遅らせてアニメーション開始（DOMレンダリング後）
-          setTimeout(() => {
-            setTriviaVisible(true);
-            // 8秒後に自動で消える
-            triviaTimerRef.current = setTimeout(() => {
-              setTriviaVisible(false);
-              setTimeout(() => { setTriviaText(null); setTriviaTranslation(null); }, 400);
-            }, 8000);
-          }, 100);
+          setTimeout(() => { setTriviaVisible(true); }, 100);
         }
       } catch {
         // Ignore trivia failures and leave the main chat untouched.

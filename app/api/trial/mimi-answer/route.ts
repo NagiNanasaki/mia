@@ -1,15 +1,14 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { NextRequest, NextResponse } from 'next/server';
-import { cleanTrialContent, normalizeModelPlainText, type TrialEvidenceItem, type TrialExchangeMessage } from '@/lib/trial';
+import { cleanTrialContent, normalizeModelPlainText, type TrialExchangeMessage } from '@/lib/trial';
 
 const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
 export async function POST(req: NextRequest) {
-  const { charge, evidence = [], history = [], userQuestion } = await req.json() as {
+  const { charge, history = [], userQuestion } = await req.json() as {
     charge: string;
-    evidence: TrialEvidenceItem[];
     history: TrialExchangeMessage[];
     userQuestion: string;
   };
@@ -18,13 +17,7 @@ export async function POST(req: NextRequest) {
 You are the DEFENDANT, accused of: ${charge}
 
 The defense counsel (your lawyer) is asking you questions to help your case.
-You want to cooperate, but you're chaotic and keep accidentally revealing suspicious details.
-
-Evidence on file:
-${evidence
-    .filter((item) => item.isRelevant)
-    .map((item) => `${item.label}: ${cleanTrialContent(item.content)}`)
-    .join('\n') || 'No specific evidence.'}
+You want to cooperate and mostly give normal, innocent answers.
 
 Examination history:
 ${history.map((item) => `${item.role}: ${cleanTrialContent(item.content)}`).join('\n')}
@@ -33,11 +26,10 @@ Defense counsel's question:
 ${cleanTrialContent(userQuestion)}
 
 Rules:
-- Answer the question directly but chaotically
-- You're trying to help your case, but you keep saying things that sound suspicious
-- Mix in innocent details with accidentally incriminating ones
-- Stay in character: "I didn't do anything" energy, but also nervous
-- Occasionally reveal a detail that's actually helpful
+- MOSTLY give innocent, reasonable answers that actually help your case (about 70% of the time)
+- SOMETIMES (about 30% of the time) accidentally say something slightly suspicious or contradictory — but keep it subtle
+- Stay in character: confident, slightly indignant, "I didn't do anything" energy
+- Never be cartoonishly self-incriminating every time — that would be unrealistic
 - 1-2 sentences max
 - No JSON, no markdown`;
 

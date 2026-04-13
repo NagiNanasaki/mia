@@ -1,15 +1,14 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { NextRequest, NextResponse } from 'next/server';
-import { cleanTrialContent, normalizeModelPlainText, parseVerdictOutcome, type TrialEvidenceItem } from '@/lib/trial';
+import { cleanTrialContent, normalizeModelPlainText, parseVerdictOutcome } from '@/lib/trial';
 
 const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
 export async function POST(req: NextRequest) {
-  const { charge, evidence = [], userQuestions = [], mimiAnswers = [], miaReactions = [] } = await req.json() as {
+  const { charge, userQuestions = [], mimiAnswers = [], miaReactions = [] } = await req.json() as {
     charge: string;
-    evidence: TrialEvidenceItem[];
     userQuestions: string[];
     mimiAnswers: string[];
     miaReactions: string[];
@@ -24,15 +23,12 @@ export async function POST(req: NextRequest) {
   const prompt = `You are the Honourable Judge presiding over a silly mock trial.
 Mimi (the defendant) is accused of: ${charge}
 
-Evidence submitted:
-${evidence.map((item) => `${item.label}: ${cleanTrialContent(item.content)}${item.isRelevant ? ' [relevant]' : ''}`).join('\n')}
-
 Examination transcript:
 ${examination || 'No examination was conducted.'}
 
 Rules:
 - You are the Judge: authoritative, dry, slightly absurd sense of humour
-- Weigh Mimi's testimony against the charge and evidence
+- Weigh Mimi's testimony against the charge
 - Decide: guilty / not guilty / case dismissed
 - Include the exact phrase "guilty", "not guilty", or "case dismissed" in your verdict
 - 2-3 sentences max, delivered with gravitas

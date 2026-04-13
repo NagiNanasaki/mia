@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import CatAvatar from '@/components/CatAvatar';
 import VocabSelectModal, { type VocabCandidate } from '@/components/VocabSelectModal';
-import { TRIAL_RECENT_MESSAGES_KEY, type TrialEvidenceItem, type TrialHistoryMessage } from '@/lib/trial';
+import { TRIAL_RECENT_MESSAGES_KEY, type TrialHistoryMessage } from '@/lib/trial';
 
 type Speaker = 'mia' | 'mimi' | 'user' | 'judge';
 
@@ -41,7 +41,6 @@ function pickMimiReaction(): string {
 export default function TrialPage() {
   const [phase, setPhase] = useState<TrialPhase>('loading');
   const [charge, setCharge] = useState('');
-  const [evidence, setEvidence] = useState<TrialEvidenceItem[]>([]);
   const [messages, setMessages] = useState<TrialMessage[]>([]);
   const [input, setInput] = useState('');
   const [verdictOutcome, setVerdictOutcome] = useState<'guilty' | 'not_guilty' | 'dismissed' | null>(null);
@@ -50,19 +49,36 @@ export default function TrialPage() {
   const [username, setUsername] = useState<string | null>(null);
   const [ownerId, setOwnerId] = useState<string | null>(null);
   const [selectingMessageId, setSelectingMessageId] = useState<string | null>(null);
+  const [darkMode, setDarkMode] = useState(false);
 
   const userQuestionsRef = useRef<string[]>([]);
   const mimiAnswersRef = useRef<string[]>([]);
   const miaReactionsRef = useRef<string[]>([]);
   const hasAwardedExpRef = useRef(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const questionCount = userQuestionsRef.current.length;
 
+  // Sync dark mode from localStorage
   useEffect(() => {
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'auto';
-    return () => { document.body.style.overflow = prev; };
+    const savedDark = localStorage.getItem('mia_dark') === '1';
+    setDarkMode(savedDark);
   }, []);
+
+  const toggleDark = () => {
+    const next = !darkMode;
+    setDarkMode(next);
+    localStorage.setItem('mia_dark', next ? '1' : '0');
+    document.documentElement.classList.toggle('dark', next);
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', next ? '#111827' : '#ffffff');
+    document.documentElement.style.backgroundColor = next ? '#111827' : '';
+  };
+
+  // Auto-scroll on new messages
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, isProcessing]);
 
   useEffect(() => {
     const run = async () => {
@@ -81,11 +97,10 @@ export default function TrialPage() {
         const response = await fetch('/api/trial/start', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ recentMessages, ownerID: savedOwnerId }),
+          body: JSON.stringify({ recentMessages }),
         });
-        const data = await response.json() as { charge: string; evidence: TrialEvidenceItem[] };
+        const data = await response.json() as { charge: string };
         setCharge(data.charge);
-        setEvidence(data.evidence ?? []);
 
         const miaOpening = `court is now in session. (｀・ω・´)\nMimi stands accused of: ${data.charge}\nthe prosecution is ready.`;
         setMessages([{ role: 'mia', content: miaOpening, id: makeId('mia') }]);
@@ -99,7 +114,6 @@ export default function TrialPage() {
         setPhase('examining');
       } catch {
         setCharge('general suspicious behavior');
-        setEvidence([]);
         setMessages([
           { role: 'mia', content: 'court is in session. Mimi stands accused of general suspicious behavior.', id: makeId('mia') },
           { role: 'mimi', content: "I didn't do anything. I want a better lawyer.", id: makeId('mimi') },
@@ -136,7 +150,6 @@ export default function TrialPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           charge,
-          evidence,
           userQuestions: userQuestionsRef.current,
           mimiAnswers: mimiAnswersRef.current,
           miaReactions: miaReactionsRef.current,
@@ -170,13 +183,10 @@ export default function TrialPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           charge,
-          evidence,
-          history: [
-            ...userQuestionsRef.current.slice(0, -1).flatMap((q, i) => [
-              { role: 'user' as const, content: q },
-              ...(mimiAnswersRef.current[i] ? [{ role: 'mimi' as const, content: mimiAnswersRef.current[i] }] : []),
-            ]),
-          ],
+          history: userQuestionsRef.current.slice(0, -1).flatMap((q, i) => [
+            { role: 'user' as const, content: q },
+            ...(mimiAnswersRef.current[i] ? [{ role: 'mimi' as const, content: mimiAnswersRef.current[i] }] : []),
+          ]),
           userQuestion: trimmed,
         }),
       });
@@ -190,7 +200,6 @@ export default function TrialPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           charge,
-          evidence,
           history: userQuestionsRef.current.flatMap((q, i) => [
             { role: 'user' as const, content: q },
             ...(mimiAnswersRef.current[i] ? [{ role: 'mimi' as const, content: mimiAnswersRef.current[i] }] : []),
@@ -209,13 +218,12 @@ export default function TrialPage() {
       setIsProcessing(false);
     }
 
-    // Auto-submit verdict after max questions
     if (userQuestionsRef.current.length >= MAX_QUESTIONS) {
       await submitVerdict();
     }
   };
 
-  const toggleTranslation = async (messageId: string, content: string, character: 'mia' | 'mimi') => {
+  const toggleTranslation = async (messageId: string, content: string, character: 'mia' | 'mimi' | 'judge') => {
     setMessages((prev) => prev.map((m) => {
       if (m.id !== messageId) return m;
       if (m.translation !== null && m.translation !== undefined) return { ...m, translation: null };
@@ -225,7 +233,7 @@ export default function TrialPage() {
       const res = await fetch('/api/translate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: content, character }),
+        body: JSON.stringify({ text: content, character: character === 'judge' ? 'mia' : character }),
       });
       const { result } = await res.json() as { result: string };
       setMessages((prev) => prev.map((m) => m.id === messageId ? { ...m, translation: result, isTranslating: false } : m));
@@ -279,7 +287,7 @@ export default function TrialPage() {
   const activeVocabMessage = selectingMessageId ? messages.find((m) => m.id === selectingMessageId) : null;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-100 via-purple-50 to-indigo-100 dark:from-gray-900 dark:via-gray-900 dark:to-gray-800 px-4 py-6 text-gray-900 dark:text-gray-100">
+    <div className="h-screen flex flex-col bg-gradient-to-br from-slate-100 via-purple-50 to-indigo-100 dark:from-gray-900 dark:via-gray-900 dark:to-gray-800 text-gray-900 dark:text-gray-100 overflow-hidden">
       {activeVocabMessage && (
         <VocabSelectModal
           items={activeVocabMessage.vocabCandidates ?? []}
@@ -291,27 +299,45 @@ export default function TrialPage() {
         />
       )}
 
-      <div className="mx-auto max-w-3xl">
+      <div
+        className="mx-auto w-full max-w-3xl flex flex-col flex-1 min-h-0 px-3"
+        style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))', paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
+      >
         {/* Header */}
-        <div className="mb-4 flex items-center justify-between">
+        <div className="mb-2 flex items-center justify-between flex-shrink-0">
           <div>
-            <h1 className="text-2xl font-bold">Mock Trial</h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Question Mimi. Mia prosecutes. The Judge decides.</p>
+            <h1 className="text-xl font-bold leading-tight">Mock Trial</h1>
+            <p className="text-xs text-gray-500 dark:text-gray-400">Question Mimi · Mia prosecutes · The Judge decides.</p>
           </div>
-          <Link href="/" className="rounded-full border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 px-4 py-2 text-sm text-gray-600 dark:text-gray-300 shadow-sm transition hover:border-purple-200 dark:hover:border-purple-700 hover:text-purple-600 dark:hover:text-purple-400">
-            Back
-          </Link>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={toggleDark}
+              className="text-gray-400 hover:text-purple-500 dark:text-gray-400 dark:hover:text-yellow-400 transition-colors p-1.5"
+              title={darkMode ? 'Light mode' : 'Dark mode'}
+            >
+              {darkMode ? (
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m12.728 0l-.707-.707M6.343 6.343l-.707-.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+              ) : (
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+              )}
+            </button>
+            <Link href="/" className="rounded-full border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 shadow-sm transition hover:border-purple-200 dark:hover:border-purple-700 hover:text-purple-600 dark:hover:text-purple-400">
+              Back
+            </Link>
+          </div>
         </div>
 
         {/* Charge */}
-        <div className="mb-4 rounded-2xl border border-indigo-200 dark:border-indigo-900 bg-white/90 dark:bg-gray-800/90 p-4 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-wide text-indigo-500 dark:text-indigo-400">Charge against Mimi</p>
-          <p className="mt-1 text-base font-medium">{charge || 'Preparing the indictment...'}</p>
+        <div className="mb-2 rounded-xl border border-indigo-200 dark:border-indigo-900 bg-white/90 dark:bg-gray-800/90 px-3 py-2 shadow-sm flex-shrink-0">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-500 dark:text-indigo-400">Charge against Mimi</p>
+          <p className="text-sm font-medium leading-snug mt-0.5">{charge || 'Preparing the indictment...'}</p>
         </div>
 
-        {/* Chat */}
-        <div className="rounded-3xl border border-white/70 dark:border-gray-700 bg-white/80 dark:bg-gray-800/80 p-4 shadow-lg backdrop-blur">
-          <div className="space-y-4">
+        {/* Chat card — fills all remaining vertical space */}
+        <div className="flex flex-col flex-1 min-h-0 rounded-3xl border border-white/70 dark:border-gray-700 bg-white/80 dark:bg-gray-800/80 shadow-lg backdrop-blur overflow-hidden">
+
+          {/* Scrollable messages */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-3">
             {messages.map((message) => {
               const isUser = message.role === 'user';
               const isJudge = message.role === 'judge';
@@ -320,30 +346,44 @@ export default function TrialPage() {
               if (isJudge) {
                 return (
                   <div key={message.id} className="flex justify-center">
-                    <div className="w-full max-w-[90%] rounded-2xl border border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-slate-700/60 px-5 py-4 text-center shadow-sm">
+                    <div className="w-full max-w-[90%] rounded-2xl border border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-slate-700/60 px-4 py-3 text-center shadow-sm">
                       <p className="mb-1 text-[11px] font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">⚖️ The Honourable Judge</p>
                       <p className="text-sm leading-relaxed text-slate-800 dark:text-slate-100 whitespace-pre-wrap">{message.content}</p>
+                      {message.translation !== null && message.translation !== undefined && (
+                        <div className="mt-2 text-xs text-gray-600 dark:text-gray-300 bg-yellow-50 dark:bg-gray-700 border border-yellow-200 dark:border-gray-600 rounded-xl px-3 py-2 leading-relaxed text-left whitespace-pre-wrap">
+                          {message.translation}
+                        </div>
+                      )}
+                      <div className="mt-2 flex justify-center">
+                        <button
+                          onClick={() => void toggleTranslation(message.id, message.content, 'judge')}
+                          className={`text-xs font-bold transition-colors ${message.translation != null ? 'text-yellow-500 hover:text-yellow-600' : 'text-gray-400 hover:text-yellow-500'}`}
+                          title="日本語訳"
+                        >
+                          {message.isTranslating ? '...' : '訳'}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 );
               }
 
               return (
-                <div key={message.id} className={`flex items-end gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}>
+                <div key={message.id} className={`flex items-end gap-2 ${isUser ? 'justify-end' : 'justify-start'}`}>
                   {!isUser && (
                     <div className="overflow-hidden rounded-full shadow-md flex-shrink-0">
-                      <CatAvatar variant={isMia ? 'mia' : 'mimi'} size={40} />
+                      <CatAvatar variant={isMia ? 'mia' : 'mimi'} size={36} />
                     </div>
                   )}
                   <div className="max-w-[80%] space-y-1">
-                    <div className={`rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm ${
+                    <div className={`rounded-2xl px-3 py-2.5 text-sm leading-relaxed shadow-sm ${
                       isUser
                         ? 'rounded-br-sm bg-indigo-600 text-white'
                         : isMia
                           ? 'rounded-bl-sm border border-purple-200 dark:border-purple-800 bg-purple-100 dark:bg-purple-950/60 text-gray-800 dark:text-gray-100'
                           : 'rounded-bl-sm border border-orange-200 dark:border-orange-800 bg-orange-100 dark:bg-orange-950/60 text-gray-800 dark:text-gray-100'
                     }`}>
-                      <p className="mb-1 text-[11px] font-semibold opacity-70">
+                      <p className="mb-1 text-[10px] font-semibold opacity-70">
                         {isUser ? (username ?? 'You') + ' (Defense)' : isMia ? 'Mia (Prosecution)' : 'Mimi (Defendant)'}
                       </p>
                       <p className="whitespace-pre-wrap break-words">{message.content}</p>
@@ -388,9 +428,9 @@ export default function TrialPage() {
             })}
 
             {isProcessing && (
-              <div className="flex items-end gap-3">
+              <div className="flex items-end gap-2">
                 <div className="overflow-hidden rounded-full shadow-md">
-                  <CatAvatar variant="mimi" size={40} />
+                  <CatAvatar variant="mimi" size={36} />
                 </div>
                 <div className="rounded-2xl rounded-bl-sm border border-orange-200 dark:border-orange-800 bg-orange-100 dark:bg-orange-950/60 px-4 py-3 shadow-sm">
                   <div className="flex gap-1">
@@ -401,11 +441,14 @@ export default function TrialPage() {
                 </div>
               </div>
             )}
+
+            <div ref={messagesEndRef} />
           </div>
 
+          {/* Input area — pinned to bottom */}
           {phase === 'examining' && (
-            <div className="mt-5 border-t border-gray-100 dark:border-gray-700 pt-4">
-              <div className="mb-2 flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
+            <div className="flex-shrink-0 border-t border-gray-100 dark:border-gray-700 p-3">
+              <div className="mb-1.5 flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
                 <span>Question Mimi</span>
                 <span>{questionCount}/{MAX_QUESTIONS}</span>
               </div>
@@ -419,16 +462,16 @@ export default function TrialPage() {
                       void handleSend();
                     }
                   }}
-                  rows={3}
+                  rows={2}
                   style={{ fontSize: '16px' }}
-                  className="min-h-[84px] flex-1 rounded-2xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-4 py-3 outline-none transition focus:border-indigo-300 dark:focus:border-indigo-600 focus:bg-white dark:focus:bg-gray-600 dark:text-gray-100 dark:placeholder-gray-400"
+                  className="flex-1 rounded-2xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-4 py-2.5 outline-none transition focus:border-indigo-300 dark:focus:border-indigo-600 focus:bg-white dark:focus:bg-gray-600 dark:text-gray-100 dark:placeholder-gray-400 resize-none"
                   placeholder="Ask Mimi a question..."
                 />
                 <div className="flex flex-col gap-2 self-end">
                   <button
                     onClick={() => void handleSend()}
                     disabled={!input.trim() || isProcessing}
-                    className="rounded-2xl bg-indigo-600 px-4 py-3 text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
+                    className="rounded-2xl bg-indigo-600 px-4 py-2.5 text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
                     title="質問する"
                   >
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
@@ -436,10 +479,10 @@ export default function TrialPage() {
                   <button
                     onClick={() => void submitVerdict()}
                     disabled={questionCount === 0 || isProcessing}
-                    className="rounded-2xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 transition hover:bg-slate-50 dark:hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-40"
+                    className="rounded-2xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 px-4 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 transition hover:bg-slate-50 dark:hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-40"
                     title="尋問を終了して判決へ"
                   >
-                    結審
+                    END
                   </button>
                 </div>
               </div>
@@ -447,14 +490,14 @@ export default function TrialPage() {
           )}
 
           {phase === 'verdict' && (
-            <div className="mt-5 border-t border-gray-100 dark:border-gray-700 pt-4 flex items-center gap-2 text-sm text-gray-400 dark:text-gray-500">
+            <div className="flex-shrink-0 border-t border-gray-100 dark:border-gray-700 p-3 flex items-center gap-2 text-sm text-gray-400 dark:text-gray-500">
               <span className="animate-spin inline-block">⚖️</span>
               <span>The Judge is deliberating...</span>
             </div>
           )}
 
           {phase === 'done' && (
-            <div className="mt-5 border-t border-gray-100 dark:border-gray-700 pt-4">
+            <div className="flex-shrink-0 border-t border-gray-100 dark:border-gray-700 p-3">
               <div className={`rounded-2xl border px-4 py-3 ${verdictOutcome === 'guilty' ? 'border-rose-200 dark:border-rose-900 bg-rose-50 dark:bg-rose-950/40' : 'border-emerald-200 dark:border-emerald-900 bg-emerald-50 dark:bg-emerald-950/40'}`}>
                 <p className={`text-sm font-semibold ${verdictOutcome === 'guilty' ? 'text-rose-700 dark:text-rose-400' : 'text-emerald-700 dark:text-emerald-400'}`}>
                   {verdictOutcome === 'guilty' ? 'Guilty — Mimi takes the L. No EXP.' : 'Mimi walks free!'}
